@@ -92,8 +92,18 @@ pub mod common {
 
         use super::units::Point;
 
+        pub trait PointData : Copy {
+            fn get_point(&self) -> Point;
+        }
+
         pub struct Voxel {
             point: Point
+        }
+
+        impl PointData for Voxel {
+            fn get_point(&self) -> Point {
+                self.point
+            }
         }
 
         impl Default for Voxel {
@@ -189,10 +199,10 @@ pub mod common {
 
 mod collections {
 
-    pub mod voxel {
+    pub mod point_data {
     
         use crate::common::geometry::AABB;
-        use crate::common::data_structures::Voxel;
+        use crate::common::data_structures::PointData;
         use crate::common::units::Point;
 
         enum Paternity {
@@ -200,22 +210,22 @@ mod collections {
             ChildFree
         }
 
-        pub struct Octree{
+        pub struct Octree <T: PointData>{
             aabb: AABB,
-            num_voxels: u32,
-            voxels: [Voxel; 8],
-            children: Vec<Option<Octree>>,
+            num_elements: u32,
+            elements: [Option<T>; 8],
+            children: Vec<Option<Octree<T>>>,
             paternity: Paternity
         }
 
-        impl Octree {
+        impl<T: PointData> Octree<T> {
             const MAX_SIZE: u32 = 8;
 
-            pub fn new(aabb: AABB) -> Octree {
+            pub fn new(aabb: AABB) -> Octree<T> {
                 Octree {
                     aabb,
-                    num_voxels: 0,
-                    voxels: [Voxel::default(); 8],
+                    num_elements: 0,
+                    elements: [Option::<T>::None; 8], //TODO: use option here so we don't have to use Voxel:default
                     children: vec![None, None, None, None, 
                                     None, None, None, None], //Going ahead and allocating for the vector
                     paternity: Paternity::ChildFree
@@ -223,7 +233,7 @@ mod collections {
             }
 
             fn subdivide(&mut self) {
-
+                
                 println!("Subdividing {} ", self.aabb.center);
 
                 let downbackleft = AABB::new(
@@ -271,20 +281,20 @@ mod collections {
 
             }
 
-            pub fn insert(&mut self, voxel: Voxel) -> bool{  
+            pub fn insert(&mut self, element: T) -> bool{  
 
-                if !self.aabb.contains_point(voxel.get_point()) {
+                if !self.aabb.contains_point(element.get_point()) {
                     return false
                 }
 
                 
                 match &self.paternity { //do first match because you still need to insert into children after subdividing, not either/or
 
-                    Paternity::ChildFree if self.num_voxels < Octree::MAX_SIZE => {
-                        self.voxels[self.num_voxels as usize] = voxel;
-                        println!("Inserted {} as voxel number {} in {}, {}", self.voxels[self.num_voxels as usize].get_point(), self.num_voxels, self.aabb.center, self.aabb.half_dimension);
+                    Paternity::ChildFree if self.num_elements < Octree::<T>::MAX_SIZE => {
+                        self.elements[self.num_elements as usize] = Some(element);
+                        println!("Inserted {} as element number {} in {}, {}", self.elements[self.num_elements as usize].unwrap().get_point(), self.num_elements, self.aabb.center, self.aabb.half_dimension);
 
-                        self.num_voxels = self.num_voxels + 1;
+                        self.num_elements = self.num_elements + 1;
                     }
 
                     Paternity::ChildFree => { self.subdivide(); }
@@ -298,7 +308,7 @@ mod collections {
                     Paternity::ProudParent => {
                         for i in 0..self.children.len() {
                             
-                            if self.children[i].as_mut().unwrap().insert(voxel) == true {
+                            if self.children[i].as_mut().unwrap().insert(element) == true {
                                 return true
                             } 
                                  
@@ -310,36 +320,42 @@ mod collections {
                 }
             }
 
-            pub fn query_range(&mut self, range: AABB) -> Vec<Voxel> {
+            pub fn query_range(&mut self, range: AABB) -> Vec<T> {
 
-                let mut voxels_in_range = vec![];
+                let mut elements_in_range = vec![];
                 
                 if !self.aabb.intersects_bounds(range) {
-                    return voxels_in_range
+                    return elements_in_range
                 }
 
-                if self.num_voxels == 0 {
-                    return voxels_in_range
+                if self.num_elements == 0 {
+                    return elements_in_range
                 }
 
-                for &voxel in self.voxels.iter() {
-                    if voxel.get_point() == Point::default() {
-                        continue
-                    }
-                    if self.aabb.contains_point(voxel.get_point()) {
-                        voxels_in_range.push(voxel);
+                for &element in self.elements.iter() {
+
+                    match element {
+                        None => continue,
+                        Some(_) => {
+                            let el = element.unwrap();
+                            if self.aabb.contains_point(el.get_point()) {
+                                elements_in_range.push(el);
+                            }
+                        } 
                     }
                 }
 
                 if let Paternity::ChildFree = self.paternity {
-                    return voxels_in_range
+                    return elements_in_range
                 }
 
                 for child_option in &mut self.children {
-                    voxels_in_range.append(&mut child_option.as_mut().unwrap().query_range(range))
+                    if let Some(_) = child_option {
+                        elements_in_range.append(&mut child_option.as_mut().unwrap().query_range(range));
+                    }
                 }
 
-                voxels_in_range
+                elements_in_range
             }
         }
 
@@ -351,7 +367,9 @@ fn main() {
     use common::geometry::AABB;
     use common::units::Point;
     use common::data_structures::Voxel;
-    use collections::voxel::Octree;
+    use collections::point_data::Octree;
+
+    use rand::Rng;
 
     let aabb = AABB::new(Point::new(5.0,5.0,5.0), 5.0);
     let mut node = Octree::new(aabb);
@@ -359,7 +377,12 @@ fn main() {
     for x in 0..5 {
         for y in 0..5 {
             for z in 0..5 {
-                node.insert(Voxel::new(Point::new(x as f32,y as f32,z as f32)));
+                
+                if rand::thread_rng().gen_range(0,11) > 5 {
+
+                    node.insert(Voxel::new(Point::new(x as f32,y as f32,z as f32)));
+
+                }
                 
             }
         }
