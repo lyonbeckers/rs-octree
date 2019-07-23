@@ -361,32 +361,3 @@ mod collections {
 
     }
 }
-
-fn main() {
-
-    use common::geometry::AABB;
-    use common::units::Point;
-    use common::data_structures::Voxel;
-    use collections::point_data::Octree;
-
-    use rand::Rng;
-
-    let aabb = AABB::new(Point::new(5.0,5.0,5.0), 5.0);
-    let mut node = Octree::new(aabb);
-    
-    for x in 0..5 {
-        for y in 0..5 {
-            for z in 0..5 {
-                
-                if rand::thread_rng().gen_range(0,11) > 5 {
-
-                    node.insert(Voxel::new(Point::new(x as f32,y as f32,z as f32)));
-
-                }
-                
-            }
-        }
-    }
-
-    println!("{}", &node.query_range(aabb).len());
-}
