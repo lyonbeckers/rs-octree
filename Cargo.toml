@@ -1,11 +1,17 @@
 [package]
 name = "octree"
 version = "0.1.0"
-authors = ["Lyon Beckers <lyon@nylonblonde.com>"]
+authors = ["Lyon Beckers <lyonbeckers@gmail.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 
-rand = "0.3"
+rand = "0.8.0"
+serde = "1.0.118"
+serde_derive = "1.0.118"
+nalgebra = { version = "0.23.2", features = ["serde-serialize"] }
+num = "0.3.1"
+rayon = "1.5.0"
+ron = "0.6.3"
