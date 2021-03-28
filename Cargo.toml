@@ -8,10 +8,14 @@ edition = "2018"
 
 [dependencies]
 
-rand = "0.8.0"
-serde = "1.0.118"
-serde_derive = "1.0.118"
-nalgebra = { version = "0.23.2", features = ["serde-serialize"] }
-num = "0.3.1"
-rayon = "1.5.0"
-ron = "0.6.3"
+nalgebra = { version = "0.25", features = ["serde-serialize"] }
+num = "0.4"
+rand = "0.8"
+rayon = "1.5"
+serde = "1.0"
+serde_derive = "1.0"
+tracing = "0.1"
+
+[dev-dependencies]
+tracing-subscriber = "0.2"
+ron = "0.6"
