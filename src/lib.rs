@@ -1,5 +1,6 @@
 #![deny(clippy::all)]
-mod geometry;
+
+pub mod geometry;
 #[cfg(test)]
 mod test;
 
