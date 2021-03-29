@@ -2,18 +2,37 @@ use nalgebra::Vector3;
 use ron;
 use serde::{Deserialize, Serialize};
 use tracing::Subscriber;
+use tracing_subscriber::EnvFilter;
 
 use crate::{geometry::aabb, Octree, PointData, DEFAULT_MAX};
 
 type Point = Vector3<i32>;
 type AABB = aabb::AABB<i32>;
 
-#[derive(Serialize, Deserialize, Eq, Hash, PartialEq, Clone, Debug)]
+type FloatPoint = Vector3<f32>;
+type FloatAABB = aabb::AABB<f32>;
+
+#[derive(Serialize, Deserialize, PartialEq, Copy, Clone, Debug)]
+pub struct FloatTileData {
+    point: FloatPoint,
+}
+
+impl FloatTileData {
+    pub fn new(point: FloatPoint) -> Self {
+        FloatTileData { point }
+    }
+}
+
+impl PointData<f32> for FloatTileData {
+    fn get_point(&self) -> FloatPoint {
+        self.point
+    }
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Copy, Clone, Debug)]
 pub struct TileData {
     point: Point,
 }
-
-impl Copy for TileData {}
 
 impl TileData {
     pub fn new(point: Point) -> Self {
@@ -28,7 +47,9 @@ impl PointData<i32> for TileData {
 }
 
 fn setup_subscriber() -> impl Subscriber {
-    tracing_subscriber::fmt().finish()
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .finish()
 }
 
 #[test]
@@ -52,6 +73,24 @@ fn from_iter() {
 }
 
 #[test]
+fn test_float() {
+    tracing::subscriber::set_global_default(setup_subscriber()).ok();
+
+    let aabb = FloatAABB::new(FloatPoint::new(1., 1., 1.), FloatPoint::new(4., 4., 4.));
+    let mut octree = Octree::<f32, FloatTileData>::new(aabb, DEFAULT_MAX);
+
+    octree
+        .insert(FloatTileData::new(FloatPoint::new(
+            1.2233, 1.666778, 1.999888,
+        )))
+        .ok();
+
+    assert!(octree
+        .query_point(FloatPoint::new(1.2233, 1.666778, 1.999888))
+        .is_some());
+}
+
+#[test]
 fn even_subdivision() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
@@ -70,8 +109,6 @@ fn odd_subdivision() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
     let aabb = AABB::new(Point::new(1, 1, 1), Point::new(5, 5, 5));
-
-    println!("{:?} {:?}", aabb.get_min(), aabb.get_max());
 
     let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
 
@@ -129,7 +166,6 @@ fn contains_point() {
 
     let aabb = AABB::new(Point::new(-5, 5, 5), Point::new(-10, 10, 10));
 
-    println!("min {:?} max {:?}", aabb.get_min(), aabb.get_max());
     assert!(!aabb.contains_point(Point::zeros()));
 }
 
@@ -139,8 +175,6 @@ fn from_extents() {
 
     let min = Point::new(0, 0, 0);
     let max = Point::new(9, 9, 9);
-
-    println!("min {:?} max {:?}", min, max);
 
     let aabb = AABB::from_extents(min, max);
     let other = AABB::new(Point::new(5, 5, 5), Point::new(10, 10, 10));

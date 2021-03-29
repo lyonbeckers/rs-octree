@@ -1,21 +1,21 @@
 #![deny(clippy::all)]
 
 pub mod geometry;
+mod minmax;
 #[cfg(test)]
 mod test;
 
 use std::{
     error,
     fmt::{self, Debug},
-    hash::Hash,
     iter::FromIterator,
     ops::{AddAssign, DivAssign, SubAssign},
     sync::{mpsc, Arc},
 };
 
-use crate::geometry::aabb::AABB;
+use crate::{geometry::aabb::AABB, minmax::MinMax};
 use nalgebra::{Scalar, Vector3};
-use num::{traits::Bounded, Num, NumCast, Signed};
+use num::{traits::Bounded, NumCast, Signed};
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -48,19 +48,19 @@ impl<'a, N: Scalar, T: PointData<N>> Iterator for OctreeIter<N, T> {
 }
 
 pub trait NumTraits:
-    Signed + Scalar + Num + NumCast + Ord + AddAssign + SubAssign + DivAssign
+    Signed + Scalar + NumCast + MinMax + PartialOrd + AddAssign + SubAssign + DivAssign
 {
 }
 
 impl<T> NumTraits for T where
-    T: Signed + Scalar + Num + NumCast + Ord + AddAssign + SubAssign + DivAssign
+    T: Signed + Scalar + NumCast + MinMax + PartialOrd + AddAssign + SubAssign + DivAssign
 {
 }
 
 impl<N, T> IntoIterator for Octree<N, T>
 where
     N: NumTraits + Sync + Send + Copy + Clone + Serialize + DeserializeOwned,
-    T: PointData<N> + Hash + Eq + PartialEq + Debug + Sync + Send,
+    T: PointData<N> + PartialEq + Debug + Sync + Send,
 {
     type Item = T;
     type IntoIter = OctreeIter<N, T>;
@@ -76,7 +76,7 @@ where
 impl<N, T> FromIterator<T> for Octree<N, T>
 where
     N: Sync + Send + Bounded + NumTraits + Copy + Clone + Serialize + DeserializeOwned,
-    T: PointData<N> + Hash + Eq + PartialEq + Debug + Sync + Send,
+    T: PointData<N> + PartialEq + Debug + Sync + Send,
 {
     fn from_iter<A: IntoIterator<Item = T>>(iter: A) -> Self {
         let mut smallest = Vector3::<N>::new(
@@ -99,13 +99,13 @@ where
             for item in items.iter() {
                 let pt = item.get_point();
 
-                smallest.x = Ord::min(pt.x, smallest.x);
-                smallest.y = Ord::min(pt.y, smallest.y);
-                smallest.z = Ord::min(pt.z, smallest.z);
+                smallest.x = pt.x.min(smallest.x);
+                smallest.y = pt.y.min(smallest.y);
+                smallest.z = pt.z.min(smallest.z);
 
-                largest.x = Ord::max(pt.x, largest.x);
-                largest.y = Ord::max(pt.y, largest.y);
-                largest.z = Ord::max(pt.z, largest.z);
+                largest.x = pt.x.max(largest.x);
+                largest.y = pt.y.max(largest.y);
+                largest.z = pt.z.max(largest.z);
             }
         }
 
@@ -133,7 +133,7 @@ pub struct Octree<N: Scalar, T: PointData<N>> {
 impl<N, T> Octree<N, T>
 where
     N: Sync + Send + NumTraits + Copy + Clone,
-    T: PointData<N> + Hash + Eq + PartialEq + Debug + Sync + Send,
+    T: PointData<N> + PartialEq + Debug + Sync + Send,
 {
     pub fn new(aabb: AABB<N>, max_elements: usize) -> Octree<N, T> {
         tracing::debug!(target: "creating octree", min = ?aabb.get_min(), max = ?aabb.get_max());

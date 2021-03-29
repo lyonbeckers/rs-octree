@@ -1,6 +1,8 @@
 use nalgebra::{Scalar, Vector3};
-use num::{Num, NumCast, Signed};
+use num::NumCast;
 use serde::{Deserialize, Serialize};
+
+use crate::NumTraits;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Copy)]
 pub struct AABB<F: Scalar> {
@@ -8,7 +10,7 @@ pub struct AABB<F: Scalar> {
     pub dimensions: Vector3<F>,
 }
 
-impl<F: Signed + Scalar + Num + NumCast + Ord + Copy + Clone> AABB<F> {
+impl<F: NumTraits + Copy + Clone> AABB<F> {
     pub fn new(center: Vector3<F>, dimensions: Vector3<F>) -> Self {
         Self { center, dimensions }
     }
@@ -106,35 +108,35 @@ impl<F: Signed + Scalar + Num + NumCast + Ord + Copy + Clone> AABB<F> {
         let mut rotated_corners_iter = rotated_corners.iter();
 
         if let Some(corner) = rotated_corners_iter.next() {
-            let mut min_x: F = NumCast::from(corner.x).unwrap();
-            let mut min_y: F = NumCast::from(corner.y).unwrap();
-            let mut min_z: F = NumCast::from(corner.z).unwrap();
+            let corner_x: F = NumCast::from(corner.x).unwrap();
+            let corner_y: F = NumCast::from(corner.y).unwrap();
+            let corner_z: F = NumCast::from(corner.z).unwrap();
 
-            let mut max_x: F = NumCast::from(corner.x).unwrap();
-            let mut max_y: F = NumCast::from(corner.y).unwrap();
-            let mut max_z: F = NumCast::from(corner.z).unwrap();
+            let mut min_x: F = corner_x;
+            let mut min_y: F = corner_y;
+            let mut min_z: F = corner_z;
+
+            let mut max_x: F = corner_x;
+            let mut max_y: F = corner_y;
+            let mut max_z: F = corner_z;
 
             for corner in rotated_corners_iter {
-                min_x = std::cmp::min(min_x, NumCast::from(corner.x).unwrap());
-                min_y = std::cmp::min(min_y, NumCast::from(corner.y).unwrap());
-                min_z = std::cmp::min(min_z, NumCast::from(corner.z).unwrap());
+                let corner_x: F = NumCast::from(corner.x).unwrap();
+                let corner_y: F = NumCast::from(corner.y).unwrap();
+                let corner_z: F = NumCast::from(corner.z).unwrap();
 
-                max_x = std::cmp::max(max_x, NumCast::from(corner.x).unwrap());
-                max_y = std::cmp::max(max_y, NumCast::from(corner.y).unwrap());
-                max_z = std::cmp::max(max_z, NumCast::from(corner.z).unwrap());
+                min_x = min_x.min(corner_x);
+                min_y = min_y.min(corner_y);
+                min_z = min_z.min(corner_z);
+
+                max_x = max_x.max(corner_x);
+                max_y = max_y.max(corner_y);
+                max_z = max_z.max(corner_z);
             }
 
-            let min = Vector3::<F>::new(
-                NumCast::from(min_x).unwrap(),
-                NumCast::from(min_y).unwrap(),
-                NumCast::from(min_z).unwrap(),
-            );
+            let min = Vector3::<F>::new(min_x, min_y, min_z);
 
-            let max = Vector3::<F>::new(
-                NumCast::from(max_x).unwrap(),
-                NumCast::from(max_y).unwrap(),
-                NumCast::from(max_z).unwrap(),
-            );
+            let max = Vector3::<F>::new(max_x, max_y, max_z);
 
             let aabb = AABB::from_extents(min, max);
             return AABB::new(
@@ -158,15 +160,15 @@ impl<F: Signed + Scalar + Num + NumCast + Ord + Copy + Clone> AABB<F> {
         let other_max = other.get_max();
 
         let intersect_min = Vector3::<F>::new(
-            std::cmp::max(min.x, other_min.x),
-            std::cmp::max(min.y, other_min.y),
-            std::cmp::max(min.z, other_min.z),
+            min.x.max(other_min.x),
+            min.y.max(other_min.y),
+            min.z.max(other_min.z),
         );
 
         let intersect_max = Vector3::<F>::new(
-            std::cmp::min(max.x, other_max.x),
-            std::cmp::min(max.y, other_max.y),
-            std::cmp::min(max.z, other_max.z),
+            max.x.min(other_max.x),
+            max.y.min(other_max.y),
+            max.z.min(other_max.z),
         );
 
         AABB::from_extents(intersect_min, intersect_max)
