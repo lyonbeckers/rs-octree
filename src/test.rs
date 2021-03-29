@@ -1,5 +1,6 @@
+#![allow(clippy::cast_sign_loss)]
+
 use nalgebra::Vector3;
-use ron;
 use serde::{Deserialize, Serialize};
 use tracing::Subscriber;
 use tracing_subscriber::EnvFilter;
@@ -7,10 +8,10 @@ use tracing_subscriber::EnvFilter;
 use crate::{geometry::aabb, Octree, PointData, DEFAULT_MAX};
 
 type Point = Vector3<i32>;
-type AABB = aabb::AABB<i32>;
+type Aabb = aabb::Aabb<i32>;
 
 type FloatPoint = Vector3<f32>;
-type FloatAABB = aabb::AABB<f32>;
+type FloatAabb = aabb::Aabb<f32>;
 
 #[derive(Serialize, Deserialize, PartialEq, Copy, Clone, Debug)]
 pub struct FloatTileData {
@@ -59,7 +60,7 @@ fn from_iter() {
     let pts: Vec<TileData> = vec![TileData::new(Point::zeros())];
 
     let mut oct_a: Octree<i32, TileData> = Octree::new(
-        AABB::from_extents(Point::zeros(), Point::zeros()),
+        Aabb::from_extents(Point::zeros(), Point::zeros()),
         DEFAULT_MAX,
     );
 
@@ -76,25 +77,37 @@ fn from_iter() {
 fn test_float() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = FloatAABB::new(FloatPoint::new(1., 1., 1.), FloatPoint::new(4., 4., 4.));
+    let aabb = FloatAabb::new(FloatPoint::new(1., 1., 1.), FloatPoint::new(4., 4., 4.));
     let mut octree = Octree::<f32, FloatTileData>::new(aabb, DEFAULT_MAX);
 
     octree
         .insert(FloatTileData::new(FloatPoint::new(
-            1.2233, 1.666778, 1.999888,
+            1.2233,
+            1.666_778,
+            1.999_888_8,
         )))
         .ok();
 
     assert!(octree
-        .query_point(FloatPoint::new(1.2233, 1.666778, 1.999888))
+        .query_point(FloatPoint::new(1.2233, 1.666_778, 1.999_888_8))
         .is_some());
+
+    octree
+        .insert(FloatTileData::new(FloatPoint::new(
+            1.2233,
+            1.666_778,
+            1.999_888_8,
+        )))
+        .ok();
+
+    assert_eq!(octree.into_iter().count(), 1);
 }
 
 #[test]
 fn even_subdivision() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::new(Point::new(1, 1, 1), Point::new(4, 4, 4));
+    let aabb = Aabb::new(Point::new(1, 1, 1), Point::new(4, 4, 4));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
 
@@ -108,7 +121,7 @@ fn even_subdivision() {
 fn odd_subdivision() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::new(Point::new(1, 1, 1), Point::new(5, 5, 5));
+    let aabb = Aabb::new(Point::new(1, 1, 1), Point::new(5, 5, 5));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
 
@@ -122,7 +135,7 @@ fn odd_subdivision() {
 fn tiny_test() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::from_extents(Point::new(2, -1, 2), Point::new(3, 0, 3));
+    let aabb = Aabb::from_extents(Point::new(2, -1, 2), Point::new(3, 0, 3));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
 
@@ -136,7 +149,7 @@ fn tiny_test() {
 fn large_test() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::from_extents(Point::new(0, 0, 0), Point::new(9, 9, 9));
+    let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(9, 9, 9));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
 
@@ -150,7 +163,7 @@ fn large_test() {
 fn large_test_small_max() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::from_extents(Point::new(0, 0, 0), Point::new(9, 9, 9));
+    let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(9, 9, 9));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, 1);
 
@@ -164,7 +177,7 @@ fn large_test_small_max() {
 fn contains_point() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::new(Point::new(-5, 5, 5), Point::new(-10, 10, 10));
+    let aabb = Aabb::new(Point::new(-5, 5, 5), Point::new(-10, 10, 10));
 
     assert!(!aabb.contains_point(Point::zeros()));
 }
@@ -176,8 +189,8 @@ fn from_extents() {
     let min = Point::new(0, 0, 0);
     let max = Point::new(9, 9, 9);
 
-    let aabb = AABB::from_extents(min, max);
-    let other = AABB::new(Point::new(5, 5, 5), Point::new(10, 10, 10));
+    let aabb = Aabb::from_extents(min, max);
+    let other = Aabb::new(Point::new(5, 5, 5), Point::new(10, 10, 10));
     assert_eq!(aabb.get_min(), other.get_min());
     assert_eq!(aabb.get_max(), other.get_max());
     assert_eq!(aabb.center, other.center);
@@ -187,7 +200,7 @@ fn from_extents() {
 fn volume_one() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::new(Point::zeros(), Point::new(1, 1, 1));
+    let aabb = Aabb::new(Point::zeros(), Point::new(1, 1, 1));
 
     println!("min {:?} max {:?}", aabb.get_min(), aabb.get_max());
     assert!(aabb.contains_point(Point::zeros()));
@@ -197,7 +210,7 @@ fn volume_one() {
 fn overwrite_element() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::new(Point::new(0, 0, 0), Point::new(4, 4, 4));
+    let aabb = Aabb::new(Point::new(0, 0, 0), Point::new(4, 4, 4));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
 
@@ -212,7 +225,7 @@ fn overwrite_element() {
 fn overwrite_all() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::new(Point::new(0, 0, 0), Point::new(9, 9, 9));
+    let aabb = Aabb::new(Point::new(0, 0, 0), Point::new(9, 9, 9));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
 
@@ -225,7 +238,7 @@ fn overwrite_all() {
 fn query_point() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::new(Point::new(0, 0, 0), Point::new(4, 4, 4));
+    let aabb = Aabb::new(Point::new(0, 0, 0), Point::new(4, 4, 4));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
 
@@ -241,7 +254,7 @@ fn query_point() {
 fn remove_range_tiny_max() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
+    let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, 1);
 
@@ -249,15 +262,15 @@ fn remove_range_tiny_max() {
 
     let before = octree.clone().into_iter().count();
 
-    octree.remove_range(AABB::from_extents(Point::new(0, 0, 0), Point::new(0, 0, 0)));
+    octree.remove_range(Aabb::from_extents(Point::new(0, 0, 0), Point::new(0, 0, 0)));
 
-    assert_eq!(octree.clone().into_iter().count(), before - 1);
+    assert_eq!(octree.into_iter().count(), before - 1);
 }
 
 #[test]
 fn query_range_tiny_max() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
-    let aabb = AABB::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
+    let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, 1);
 
@@ -265,7 +278,7 @@ fn query_range_tiny_max() {
     fill_octree(aabb, &mut octree, &mut count);
     assert_eq!(
         octree
-            .query_range(AABB::from_extents(Point::zeros(), Point::zeros()))
+            .query_range(Aabb::from_extents(Point::zeros(), Point::zeros()))
             .len(),
         1
     );
@@ -276,7 +289,7 @@ fn query_range_tiny_max() {
 fn iter_count_tiny_max() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
+    let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, 1);
 
@@ -290,7 +303,7 @@ fn iter_count_tiny_max() {
 fn contains_point_tiny_max() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
+    let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, 1);
 
@@ -305,13 +318,13 @@ fn contains_point_tiny_max() {
 fn remove_element() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::new(Point::new(0, 0, 0), Point::new(7, 7, 7));
+    let aabb = Aabb::new(Point::new(0, 0, 0), Point::new(7, 7, 7));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
 
     fill_octree(aabb, &mut octree, &mut 0);
 
-    let range = AABB::from_extents(Point::new(0, 0, 0), Point::new(0, 0, 0));
+    let range = Aabb::from_extents(Point::new(0, 0, 0), Point::new(0, 0, 0));
 
     assert!(octree.query_point(Point::new(0, 0, 0)).is_some());
     octree.remove_range(range);
@@ -322,7 +335,7 @@ fn remove_element() {
 fn remove_all() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let aabb = AABB::from_extents(Point::new(0, 0, 0), Point::new(9, 9, 9));
+    let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(9, 9, 9));
 
     let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
 
@@ -330,7 +343,7 @@ fn remove_all() {
     fill_octree(aabb, &mut octree, &mut count);
     assert_eq!(
         octree.clone().into_iter().count(),
-        (&aabb.dimensions.x * &aabb.dimensions.y * &aabb.dimensions.z) as usize
+        (aabb.dimensions.x * aabb.dimensions.y * aabb.dimensions.z) as usize
     );
 
     println!("removing...");
@@ -341,7 +354,7 @@ fn remove_all() {
 
     assert_eq!(
         octree.clone().into_iter().count(),
-        (&aabb.dimensions.x * &aabb.dimensions.y * &aabb.dimensions.z) as usize
+        (aabb.dimensions.x * aabb.dimensions.y * aabb.dimensions.z) as usize
     );
 
     println!("removing...");
@@ -352,7 +365,7 @@ fn remove_all() {
 
     assert_eq!(
         octree.clone().into_iter().count(),
-        (&aabb.dimensions.x * &aabb.dimensions.y * &aabb.dimensions.z) as usize
+        (aabb.dimensions.x * aabb.dimensions.y * aabb.dimensions.z) as usize
     );
 
     println!("removing...");
@@ -363,7 +376,7 @@ fn remove_all() {
 
     assert_eq!(
         octree.clone().into_iter().count(),
-        (&aabb.dimensions.x * &aabb.dimensions.y * &aabb.dimensions.z) as usize
+        (aabb.dimensions.x * aabb.dimensions.y * aabb.dimensions.z) as usize
     );
 
     println!("removing...");
@@ -374,7 +387,7 @@ fn remove_all() {
 
     assert_eq!(
         octree.clone().into_iter().count(),
-        (&aabb.dimensions.x * &aabb.dimensions.y * &aabb.dimensions.z) as usize
+        (aabb.dimensions.x * aabb.dimensions.y * aabb.dimensions.z) as usize
     );
 
     println!("removing...");
@@ -388,7 +401,7 @@ fn serialize_deserialize() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
     let mut octree = Octree::<i32, TileData>::new(
-        AABB::from_extents(Point::new(-5, -5, -5), Point::new(5, 5, 5)),
+        Aabb::from_extents(Point::new(-5, -5, -5), Point::new(5, 5, 5)),
         DEFAULT_MAX,
     );
 
@@ -417,13 +430,13 @@ fn serialize_deserialize() {
     assert_eq!(octree_clone, round_trip);
 }
 
-fn fill_octree(aabb: AABB, octree: &mut Octree<i32, TileData>, count: &mut usize) {
+fn fill_octree(aabb: Aabb, octree: &mut Octree<i32, TileData>, count: &mut usize) {
     let min = aabb.get_min();
     let max = aabb.get_max();
 
-    for z in min.z..max.z + 1 {
-        for y in min.y..max.y + 1 {
-            for x in min.x..max.x + 1 {
+    for z in min.z..=max.z {
+        for y in min.y..=max.y {
+            for x in min.x..=max.x {
                 *count += 1;
                 match octree.insert(TileData::new(Point::new(x, y, z))) {
                     Ok(_) => {}
@@ -438,11 +451,11 @@ fn fill_octree(aabb: AABB, octree: &mut Octree<i32, TileData>, count: &mut usize
 
 #[test]
 fn test_aabb_intersection() {
-    let aabb1 = AABB::from_extents(Point::new(0, 0, 0), Point::new(3, 3, 3));
-    let aabb2 = AABB::from_extents(Point::new(-1, -1, -1), Point::new(2, 2, 2));
+    let aabb1 = Aabb::from_extents(Point::new(0, 0, 0), Point::new(3, 3, 3));
+    let aabb2 = Aabb::from_extents(Point::new(-1, -1, -1), Point::new(2, 2, 2));
 
     assert_eq!(
-        AABB::from_extents(Point::new(0, 0, 0), Point::new(2, 2, 2)),
+        Aabb::from_extents(Point::new(0, 0, 0), Point::new(2, 2, 2)),
         aabb1.get_intersection(aabb2)
     );
 }

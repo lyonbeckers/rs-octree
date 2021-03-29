@@ -5,12 +5,12 @@ use serde::{Deserialize, Serialize};
 use crate::NumTraits;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Copy)]
-pub struct AABB<F: Scalar> {
+pub struct Aabb<F: Scalar> {
     pub center: Vector3<F>,
     pub dimensions: Vector3<F>,
 }
 
-impl<F: NumTraits + Copy + Clone> AABB<F> {
+impl<F: NumTraits + Copy + Clone> Aabb<F> {
     pub fn new(center: Vector3<F>, dimensions: Vector3<F>) -> Self {
         Self { center, dimensions }
     }
@@ -24,9 +24,9 @@ impl<F: NumTraits + Copy + Clone> AABB<F> {
 
         //hacky way to check if F is int, since max is inclusive
         if one / two == zero {
-            dimensions.x = dimensions.x + one;
-            dimensions.y = dimensions.y + one;
-            dimensions.z = dimensions.z + one;
+            dimensions.x += one;
+            dimensions.y += one;
+            dimensions.z += one;
         }
 
         let center = Vector3::new(
@@ -63,9 +63,9 @@ impl<F: NumTraits + Copy + Clone> AABB<F> {
 
         //hacky way to check if F is int, since max is inclusive
         if one / two == zero {
-            max.x = max.x - one;
-            max.y = max.y - one;
-            max.z = max.z - one;
+            max.x -= one;
+            max.y -= one;
+            max.z -= one;
         }
 
         max
@@ -138,8 +138,8 @@ impl<F: NumTraits + Copy + Clone> AABB<F> {
 
             let max = Vector3::<F>::new(max_x, max_y, max_z);
 
-            let aabb = AABB::from_extents(min, max);
-            return AABB::new(
+            let aabb = Aabb::from_extents(min, max);
+            return Aabb::new(
                 Vector3::zeros(),
                 Vector3::new(
                     aabb.dimensions.x.abs(),
@@ -149,10 +149,10 @@ impl<F: NumTraits + Copy + Clone> AABB<F> {
             );
         }
 
-        AABB::from_extents(Vector3::zeros(), Vector3::zeros())
+        Aabb::from_extents(Vector3::zeros(), Vector3::zeros())
     }
 
-    pub fn get_intersection(&self, other: AABB<F>) -> AABB<F> {
+    pub fn get_intersection(&self, other: Aabb<F>) -> Aabb<F> {
         let min = self.get_min();
         let max = self.get_max();
 
@@ -171,10 +171,10 @@ impl<F: NumTraits + Copy + Clone> AABB<F> {
             max.z.min(other_max.z),
         );
 
-        AABB::from_extents(intersect_min, intersect_max)
+        Aabb::from_extents(intersect_min, intersect_max)
     }
 
-    pub fn intersects_bounds(&self, other: AABB<F>) -> bool {
+    pub fn intersects_bounds(&self, other: Aabb<F>) -> bool {
         let min = self.get_min();
         let max = self.get_max();
 

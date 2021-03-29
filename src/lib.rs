@@ -1,4 +1,7 @@
-#![deny(clippy::all)]
+#![deny(clippy::pedantic)]
+#![deny(clippy::perf)]
+#![allow(clippy::missing_panics_doc)]
+#![allow(clippy::missing_errors_doc)]
 
 pub mod geometry;
 mod minmax;
@@ -13,7 +16,7 @@ use std::{
     sync::{mpsc, Arc},
 };
 
-use crate::{geometry::aabb::AABB, minmax::MinMax};
+use crate::{geometry::aabb::Aabb, minmax::MinMax};
 use nalgebra::{Scalar, Vector3};
 use num::{traits::Bounded, NumCast, Signed};
 use rayon::prelude::*;
@@ -96,7 +99,7 @@ where
             smallest = Vector3::zeros();
             largest = Vector3::zeros();
         } else {
-            for item in items.iter() {
+            for item in &items {
                 let pt = item.get_point();
 
                 smallest.x = pt.x.min(smallest.x);
@@ -109,9 +112,9 @@ where
             }
         }
 
-        let mut octree = Octree::new(AABB::from_extents(smallest, largest), DEFAULT_MAX);
+        let mut octree = Octree::new(Aabb::from_extents(smallest, largest), DEFAULT_MAX);
 
-        for item in items.iter() {
+        for item in &items {
             octree.insert(*item).unwrap();
         }
 
@@ -122,7 +125,7 @@ where
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 #[allow(dead_code)]
 pub struct Octree<N: Scalar, T: PointData<N>> {
-    aabb: AABB<N>,
+    aabb: Aabb<N>,
     max_elements: usize,
     elements: Vec<T>,
     children: Vec<Octree<N, T>>,
@@ -135,7 +138,7 @@ where
     N: Sync + Send + NumTraits + Copy + Clone,
     T: PointData<N> + PartialEq + Debug + Sync + Send,
 {
-    pub fn new(aabb: AABB<N>, max_elements: usize) -> Octree<N, T> {
+    pub fn new(aabb: Aabb<N>, max_elements: usize) -> Octree<N, T> {
         tracing::debug!(target: "creating octree", min = ?aabb.get_min(), max = ?aabb.get_max());
 
         Octree {
@@ -147,7 +150,7 @@ where
         }
     }
 
-    pub fn get_aabb(&self) -> AABB<N> {
+    pub fn get_aabb(&self) -> Aabb<N> {
         self.aabb
     }
 
@@ -155,6 +158,9 @@ where
         self.max_elements
     }
 
+    /// # Errors
+    /// will panic if the subdivision does not have the correct dimensions
+    #[allow(clippy::too_many_lines)]
     fn subdivide(&mut self) -> Result<(), SubdivisionError<N>> {
         let zero: N = NumCast::from(0).unwrap();
         let one: N = NumCast::from(1).unwrap();
@@ -179,7 +185,7 @@ where
             //down back left
             let sub_max = min + larger_half;
 
-            let downbackleft = AABB::<N>::from_extents(min, sub_max);
+            let downbackleft = Aabb::<N>::from_extents(min, sub_max);
             tx.send(Octree::new(downbackleft, *max_elements)).unwrap();
 
             if dimensions.x > one {
@@ -191,7 +197,7 @@ where
                     let sub_max =
                         Vector3::new(max.x, sub_min.y + larger_half.y, sub_min.z + larger_half.z);
 
-                    let downbackright = AABB::<N>::from_extents(sub_min, sub_max);
+                    let downbackright = Aabb::<N>::from_extents(sub_min, sub_max);
                     tx1.send(Octree::new(downbackright, *max_elements)).unwrap();
 
                     if dimensions.z > one {
@@ -200,7 +206,7 @@ where
                             let sub_min =
                                 min + Vector3::new(larger_half.x + adj, zero, larger_half.z + adj);
                             let sub_max = Vector3::new(max.x, sub_min.y + larger_half.y, max.z);
-                            let downforwardright = AABB::<N>::from_extents(sub_min, sub_max);
+                            let downforwardright = Aabb::<N>::from_extents(sub_min, sub_max);
                             tx1.send(Octree::new(downforwardright, *max_elements))
                                 .unwrap();
 
@@ -213,7 +219,7 @@ where
                                             larger_half.y + adj,
                                             larger_half.z + adj,
                                         );
-                                    let upforwardright = AABB::<N>::from_extents(sub_min, max);
+                                    let upforwardright = Aabb::<N>::from_extents(sub_min, max);
                                     tx1.send(Octree::new(upforwardright, *max_elements))
                                         .unwrap();
                                 });
@@ -233,7 +239,7 @@ where
                     let sub_max =
                         Vector3::new(sub_min.x + larger_half.x, sub_min.y + larger_half.y, max.z);
 
-                    let downforwardleft = AABB::<N>::from_extents(sub_min, sub_max);
+                    let downforwardleft = Aabb::<N>::from_extents(sub_min, sub_max);
                     tx2.send(Octree::new(downforwardleft, *max_elements))
                         .unwrap();
 
@@ -243,7 +249,7 @@ where
                             let sub_min =
                                 min + Vector3::new(zero, larger_half.y + adj, larger_half.z + adj);
                             let sub_max = Vector3::new(sub_min.x + larger_half.x, max.y, max.z);
-                            let upforwardleft = AABB::<N>::from_extents(sub_min, sub_max);
+                            let upforwardleft = Aabb::<N>::from_extents(sub_min, sub_max);
                             tx2.send(Octree::new(upforwardleft, *max_elements)).unwrap();
                         });
                     }
@@ -259,7 +265,7 @@ where
                     let sub_min = min + Vector3::new(zero, larger_half.y + adj, zero);
                     let sub_max =
                         Vector3::new(sub_min.x + larger_half.x, max.y, sub_min.z + larger_half.z);
-                    let upbackleft = AABB::<N>::from_extents(sub_min, sub_max);
+                    let upbackleft = Aabb::<N>::from_extents(sub_min, sub_max);
                     tx3.send(Octree::new(upbackleft, *max_elements)).unwrap();
 
                     if dimensions.x > one {
@@ -268,7 +274,7 @@ where
                             let sub_min =
                                 min + Vector3::new(larger_half.x + adj, larger_half.y + adj, zero);
                             let sub_max = Vector3::new(max.x, max.y, sub_min.z + larger_half.z);
-                            let upbackright = AABB::<N>::from_extents(sub_min, sub_max);
+                            let upbackright = Aabb::<N>::from_extents(sub_min, sub_max);
                             tx3.send(Octree::new(upbackright, *max_elements)).unwrap();
                         });
                     }
@@ -335,7 +341,7 @@ where
     }
 
     /// Removes all elements which fit inside range, silently avoiding positions that do not fit inside the octree
-    pub fn remove_range(&mut self, range: AABB<N>) {
+    pub fn remove_range(&mut self, range: Aabb<N>) {
         if let Paternity::ChildFree = self.paternity {
             if self.elements.is_empty() {
                 return;
@@ -385,26 +391,26 @@ where
         {
             *dupe_element = element;
             return Ok(());
-        } else {
-            match &self.paternity {
-                //do first match because you still need to insert into children after subdividing, not either/or
-                Paternity::ChildFree | Paternity::ProudParent
-                    if self.max_elements > self.elements.len() =>
-                {
-                    self.elements.push(element);
+        }
 
-                    return Ok(());
-                }
+        match &self.paternity {
+            //do first match because you still need to insert into children after subdividing, not either/or
+            Paternity::ChildFree | Paternity::ProudParent
+                if self.max_elements > self.elements.len() =>
+            {
+                self.elements.push(element);
 
-                Paternity::ChildFree => match self.subdivide() {
-                    Ok(_) => {}
-                    Err(err) => {
-                        panic!("{:?}", err);
-                    }
-                },
-
-                _ => {}
+                return Ok(());
             }
+
+            Paternity::ChildFree => match self.subdivide() {
+                Ok(_) => {}
+                Err(err) => {
+                    panic!("{:?}", err);
+                }
+            },
+
+            _ => {}
         }
 
         match &self.paternity {
@@ -424,9 +430,9 @@ where
                 });
 
                 let mut received = rx.into_iter();
-                if let Some(r) = received.find(|x| x.is_ok()) {
+                if let Some(r) = received.find(Result::is_ok) {
                     return r;
-                } else if let Some(r) = received.find(|x| x.is_err()) {
+                } else if let Some(r) = received.find(Result::is_ok) {
                     return r;
                 }
 
@@ -485,7 +491,7 @@ where
         rx.into_iter().next()
     }
 
-    pub fn query_range(&self, range: AABB<N>) -> Vec<T> {
+    pub fn query_range(&self, range: Aabb<N>) -> Vec<T> {
         let mut elements_in_range: Vec<T> = Vec::with_capacity(self.max_elements);
 
         if !self.aabb.intersects_bounds(range) {
@@ -551,8 +557,8 @@ impl<N: Scalar> error::Error for SubdivisionError<N> {
 #[derive(Clone, Debug)]
 pub enum InsertionErrorType<N: Scalar> {
     Empty,
-    BlockFull(AABB<N>),
-    OutOfBounds(AABB<N>),
+    BlockFull(Aabb<N>),
+    OutOfBounds(Aabb<N>),
 }
 
 #[derive(Debug, Clone)]
