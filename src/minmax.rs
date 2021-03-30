@@ -3,6 +3,33 @@ pub trait MinMax {
     fn max(self, other: Self) -> Self;
 }
 
+impl MinMax for u8 {
+    fn min(self, other: Self) -> Self {
+        std::cmp::min(self, other)
+    }
+    fn max(self, other: Self) -> Self {
+        std::cmp::max(self, other)
+    }
+}
+
+impl MinMax for u32 {
+    fn min(self, other: Self) -> Self {
+        std::cmp::min(self, other)
+    }
+    fn max(self, other: Self) -> Self {
+        std::cmp::max(self, other)
+    }
+}
+
+impl MinMax for u64 {
+    fn min(self, other: Self) -> Self {
+        std::cmp::min(self, other)
+    }
+    fn max(self, other: Self) -> Self {
+        std::cmp::max(self, other)
+    }
+}
+
 impl MinMax for i8 {
     fn min(self, other: Self) -> Self {
         std::cmp::min(self, other)
