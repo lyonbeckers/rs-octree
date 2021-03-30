@@ -3,20 +3,24 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::missing_errors_doc)]
 
+pub mod error;
 pub mod geometry;
 mod minmax;
 #[cfg(test)]
 mod test;
 
 use std::{
-    error,
     fmt::{self, Debug},
     iter::FromIterator,
     ops::{AddAssign, DivAssign, SubAssign},
     sync::{mpsc, Arc},
 };
 
-use crate::{geometry::aabb::Aabb, minmax::MinMax};
+use crate::{
+    error::{Error, Result},
+    geometry::aabb::Aabb,
+    minmax::MinMax,
+};
 use nalgebra::{Scalar, Vector3};
 use num::{traits::Bounded, NumCast, Signed};
 use rayon::prelude::*;
@@ -161,7 +165,7 @@ where
     /// # Errors
     /// will panic if the subdivision does not have the correct dimensions
     #[allow(clippy::too_many_lines)]
-    fn subdivide(&mut self) -> Result<(), SubdivisionError<N>> {
+    fn subdivide(&mut self) -> Result<(), N> {
         let zero: N = NumCast::from(0).unwrap();
         let one: N = NumCast::from(1).unwrap();
         let two: N = NumCast::from(2).unwrap();
@@ -302,7 +306,8 @@ where
             } else {
                 Err(SubdivisionError {
                     error_type: SubdivisionErrorType::IncorrectDimensions(total_volume, volume),
-                })
+                }
+                .into())
             }
         } else {
             Ok(())
@@ -373,13 +378,13 @@ where
         }
     }
 
-    pub fn insert(&mut self, element: T) -> Result<(), InsertionError<N>> {
+    pub fn insert(&mut self, element: T) -> Result<(), N> {
         let pt = element.get_point();
 
         if !self.aabb.contains_point(pt) {
-            return Err(InsertionError {
+            return Err(Error::<N>::InsertionError(InsertionError {
                 error_type: InsertionErrorType::OutOfBounds(self.aabb),
-            });
+            }));
         }
 
         //if element already exists at point, replace it
@@ -393,8 +398,8 @@ where
             return Ok(());
         }
 
+        //do first match because you still need to insert into children after subdividing, not either/or
         match &self.paternity {
-            //do first match because you still need to insert into children after subdividing, not either/or
             Paternity::ChildFree | Paternity::ProudParent
                 if self.max_elements > self.elements.len() =>
             {
@@ -405,21 +410,14 @@ where
 
             Paternity::ChildFree => match self.subdivide() {
                 Ok(_) => {}
-                Err(err) => {
-                    panic!("{:?}", err);
-                }
+                Err(err) => return Err(err),
             },
-
             _ => {}
         }
 
         match &self.paternity {
             Paternity::ProudParent => {
-                let result = Err(InsertionError {
-                    error_type: InsertionErrorType::BlockFull(self.aabb),
-                });
-
-                let (tx, rx) = mpsc::channel::<Result<(), InsertionError<N>>>();
+                let (tx, rx) = mpsc::channel::<Result<(), N>>();
 
                 self.children.par_iter_mut().for_each_with(tx, |tx, child| {
                     match child.insert(element) {
@@ -436,12 +434,14 @@ where
                     return r;
                 }
 
-                result
+                Err(Error::<N>::InsertionError(InsertionError {
+                    error_type: InsertionErrorType::BlockFull(self.aabb),
+                }))
             }
 
-            _ => Err(InsertionError {
+            _ => Err(Error::<N>::InsertionError(InsertionError {
                 error_type: InsertionErrorType::Empty,
-            }),
+            })),
         }
     }
 
@@ -548,8 +548,8 @@ impl<N: Scalar> fmt::Display for SubdivisionError<N> {
     }
 }
 
-impl<N: Scalar> error::Error for SubdivisionError<N> {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+impl<N: Scalar> std::error::Error for SubdivisionError<N> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
     }
 }
@@ -572,8 +572,8 @@ impl<N: Scalar> fmt::Display for InsertionError<N> {
     }
 }
 
-impl<N: Scalar> error::Error for InsertionError<N> {
-    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+impl<N: Scalar> std::error::Error for InsertionError<N> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
     }
 }
