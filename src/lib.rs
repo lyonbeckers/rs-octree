@@ -3,9 +3,9 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::missing_errors_doc)]
 
+mod agnostic_math;
 pub mod error;
 pub mod geometry;
-mod minmax;
 #[cfg(test)]
 mod test;
 
@@ -17,12 +17,13 @@ use std::{
 };
 
 use crate::{
+    agnostic_math::MinMax,
     error::{Error, Result},
     geometry::aabb::Aabb,
-    minmax::MinMax,
 };
+use agnostic_math::{vector_abs, AgnosticAbs};
 use nalgebra::{Scalar, Vector3};
-use num::{traits::Bounded, NumCast, Signed};
+use num::{traits::Bounded, Num, NumCast};
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -55,12 +56,20 @@ impl<'a, N: Scalar, T: PointData<N>> Iterator for OctreeIter<N, T> {
 }
 
 pub trait NumTraits:
-    Signed + Scalar + NumCast + MinMax + PartialOrd + AddAssign + SubAssign + DivAssign
+    Num + Scalar + NumCast + MinMax + AgnosticAbs + PartialOrd + AddAssign + SubAssign + DivAssign
 {
 }
 
 impl<T> NumTraits for T where
-    T: Signed + Scalar + NumCast + MinMax + PartialOrd + AddAssign + SubAssign + DivAssign
+    T: Num
+        + Scalar
+        + NumCast
+        + MinMax
+        + AgnosticAbs
+        + PartialOrd
+        + AddAssign
+        + SubAssign
+        + DivAssign
 {
 }
 
@@ -176,7 +185,7 @@ where
         let min = self.aabb.get_min();
         let max = self.aabb.get_max();
 
-        let dimensions = self.aabb.dimensions.abs();
+        let dimensions = vector_abs(self.aabb.dimensions);
 
         let smaller_half = dimensions / two;
         let larger_half = dimensions - smaller_half - Vector3::new(adj, adj, adj);

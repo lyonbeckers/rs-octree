@@ -2,7 +2,7 @@ use nalgebra::{Scalar, Vector3};
 use num::NumCast;
 use serde::{Deserialize, Serialize};
 
-use crate::NumTraits;
+use crate::{agnostic_math::vector_abs, NumTraits};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone, Copy)]
 pub struct Aabb<F: Scalar> {
@@ -39,7 +39,7 @@ impl<F: NumTraits + Copy + Clone> Aabb<F> {
     }
 
     pub fn get_min(&self) -> Vector3<F> {
-        let dimensions = self.dimensions.abs();
+        let dimensions = vector_abs(self.dimensions);
         let two: F = NumCast::from(2).unwrap();
         Vector3::new(
             self.center.x - dimensions.x / two,
@@ -49,7 +49,7 @@ impl<F: NumTraits + Copy + Clone> Aabb<F> {
     }
 
     pub fn get_max(&self) -> Vector3<F> {
-        let dimensions = self.dimensions.abs();
+        let dimensions = vector_abs(self.dimensions);
         let two: F = NumCast::from(2).unwrap();
         let one: F = NumCast::from(1).unwrap();
         let zero: F = NumCast::from(0).unwrap();
