@@ -1,5 +1,7 @@
 #![allow(clippy::cast_sign_loss)]
 
+use std::collections::HashSet;
+
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 use tracing::Subscriber;
@@ -30,7 +32,7 @@ impl PointData<f32> for FloatTileData {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Hash, Eq, Copy, Clone, Debug)]
 pub struct TileData {
     point: Point,
 }
@@ -70,7 +72,10 @@ fn from_iter() {
 
     let oct_b = pts.into_iter().collect::<Octree<i32, TileData>>();
 
-    assert_eq!(oct_a, oct_b);
+    assert_eq!(
+        oct_a.into_iter().collect::<Vec<TileData>>(),
+        oct_b.into_iter().collect::<Vec<TileData>>()
+    );
 }
 
 #[test]
@@ -427,7 +432,14 @@ fn serialize_deserialize() {
 
     let round_trip: Octree<i32, TileData> = ron::de::from_str(&ser_ron).unwrap();
 
-    assert_eq!(octree_clone, round_trip);
+    assert!(
+        octree_clone
+            .into_iter()
+            .collect::<HashSet<TileData>>()
+            .symmetric_difference(&round_trip.into_iter().collect::<HashSet<TileData>>())
+            .count()
+            == 0
+    );
 }
 
 fn fill_octree(aabb: Aabb, octree: &mut Octree<i32, TileData>, count: &mut usize) {

@@ -11,7 +11,7 @@ mod test;
 
 use std::{
     fmt::{self, Debug},
-    iter::FromIterator,
+    iter::{FromIterator, Sum},
     ops::{AddAssign, DivAssign, SubAssign},
     sync::{mpsc, Arc},
 };
@@ -24,6 +24,7 @@ use crate::{
 use agnostic_math::{vector_abs, AgnosticAbs};
 use nalgebra::{Scalar, Vector3};
 use num::{traits::Bounded, Num, NumCast};
+use parking_lot::RwLock;
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -56,12 +57,13 @@ impl<'a, N: Scalar, T: PointData<N>> Iterator for OctreeIter<N, T> {
 }
 
 pub trait NumTraits:
-    Num + Scalar + NumCast + MinMax + AgnosticAbs + PartialOrd + AddAssign + SubAssign + DivAssign
+    Num + Sum + Scalar + NumCast + MinMax + AgnosticAbs + PartialOrd + AddAssign + SubAssign + DivAssign
 {
 }
 
 impl<T> NumTraits for T where
     T: Num
+        + Sum
         + Scalar
         + NumCast
         + MinMax
@@ -135,13 +137,13 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[allow(dead_code)]
 pub struct Octree<N: Scalar, T: PointData<N>> {
     aabb: Aabb<N>,
     max_elements: usize,
     elements: Vec<T>,
-    children: Vec<Octree<N, T>>,
+    children: Vec<Arc<RwLock<Octree<N, T>>>>,
     paternity: Paternity,
 }
 
@@ -296,16 +298,19 @@ where
         });
 
         for received in rx {
-            self.children.push(received);
+            self.children.push(Arc::new(RwLock::new(received)));
         }
 
         self.paternity = Paternity::ProudParent;
 
-        let mut total_volume = zero;
-        for child in &self.children {
-            total_volume +=
-                child.aabb.dimensions.x * child.aabb.dimensions.y * child.aabb.dimensions.z;
-        }
+        let total_volume = self
+            .children
+            .iter()
+            .map(|child| {
+                let w = child.write();
+                w.aabb.dimensions.x * w.aabb.dimensions.y * w.aabb.dimensions.z
+            })
+            .sum();
 
         let volume = dimensions.x * dimensions.y * dimensions.z;
 
@@ -349,7 +354,7 @@ where
 
         if let Paternity::ProudParent = self.paternity {
             self.children.par_iter_mut().for_each(|child| {
-                child.remove_item(item);
+                child.write().remove_item(item);
             });
         }
     }
@@ -382,7 +387,7 @@ where
 
         if let Paternity::ProudParent = self.paternity {
             self.children.par_iter_mut().for_each(|child| {
-                child.remove_range(range);
+                child.write().remove_range(range);
             });
         }
     }
@@ -429,7 +434,7 @@ where
                 let (tx, rx) = mpsc::channel::<Result<(), N>>();
 
                 self.children.par_iter_mut().for_each_with(tx, |tx, child| {
-                    match child.insert(element) {
+                    match child.write().insert(element) {
                         Ok(_) => tx.send(Ok(())),
                         Err(err) => tx.send(Err(err)),
                     }
@@ -461,7 +466,7 @@ where
             Paternity::ChildFree => count,
             Paternity::ProudParent => {
                 for child in &self.children {
-                    count += child.count();
+                    count += child.read().count();
                 }
                 count
             }
@@ -492,7 +497,7 @@ where
         let (tx, rx) = mpsc::channel::<T>();
 
         self.children.par_iter().for_each_with(tx, |tx, child| {
-            if let Some(result) = child.query_point(point) {
+            if let Some(result) = child.read().query_point(point) {
                 tx.send(result).unwrap();
             }
         });
@@ -530,7 +535,7 @@ where
         let (tx, rx) = mpsc::channel::<Vec<T>>();
 
         self.children.par_iter().for_each_with(tx, |tx, child| {
-            tx.send(child.query_range(range)).unwrap();
+            tx.send(child.read().query_range(range)).unwrap();
         });
 
         for mut received in rx {
