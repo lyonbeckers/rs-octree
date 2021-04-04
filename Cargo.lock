@@ -342,6 +342,7 @@ dependencies = [
 name = "octree"
 version = "0.1.0"
 dependencies = [
+ "crossbeam-channel",
  "nalgebra",
  "num",
  "parking_lot",

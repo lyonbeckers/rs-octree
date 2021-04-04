@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 
+crossbeam-channel = "0.5"
 nalgebra = { version = "0.25", features = ["serde-serialize"] }
 num = "0.4"
 parking_lot = { version = "0.11", features = ["serde"] }

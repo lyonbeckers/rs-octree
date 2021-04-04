@@ -13,7 +13,7 @@ use std::{
     fmt::{self, Debug},
     iter::{FromIterator, Sum},
     ops::{AddAssign, DivAssign, SubAssign},
-    sync::{mpsc, Arc},
+    sync::Arc,
 };
 
 use crate::{
@@ -192,7 +192,7 @@ where
         let smaller_half = dimensions / two;
         let larger_half = dimensions - smaller_half - Vector3::new(adj, adj, adj);
 
-        let (tx, rx) = mpsc::channel::<Octree<N, T>>();
+        let (tx, rx) = crossbeam_channel::unbounded::<Octree<N, T>>();
 
         let max_elements = Arc::new(self.max_elements);
 
@@ -336,7 +336,7 @@ where
             }
         }
 
-        let (tx, rx) = mpsc::channel::<T>();
+        let (tx, rx) = crossbeam_channel::unbounded::<T>();
 
         self.elements.par_iter().for_each_with(tx, |tx, element| {
             if element == item {
@@ -367,7 +367,7 @@ where
             }
         }
 
-        let (tx, rx) = mpsc::channel::<T>();
+        let (tx, rx) = crossbeam_channel::unbounded::<T>();
 
         self.elements.par_iter().for_each_with(tx, |tx, element| {
             let pt = element.get_point();
@@ -431,7 +431,7 @@ where
 
         match &self.paternity {
             Paternity::ProudParent => {
-                let (tx, rx) = mpsc::channel::<Result<(), N>>();
+                let (tx, rx) = crossbeam_channel::unbounded::<Result<(), N>>();
 
                 self.children.par_iter_mut().for_each_with(tx, |tx, child| {
                     match child.write().insert(element) {
@@ -478,7 +478,7 @@ where
             return None;
         }
 
-        let (tx, rx) = mpsc::channel::<T>();
+        let (tx, rx) = crossbeam_channel::unbounded::<T>();
 
         self.elements.par_iter().for_each_with(tx, |tx, element| {
             if element.get_point() == point {
@@ -494,7 +494,7 @@ where
             return None;
         }
 
-        let (tx, rx) = mpsc::channel::<T>();
+        let (tx, rx) = crossbeam_channel::unbounded::<T>();
 
         self.children.par_iter().for_each_with(tx, |tx, child| {
             if let Some(result) = child.read().query_point(point) {
@@ -518,7 +518,7 @@ where
             }
         }
 
-        let (tx, rx) = mpsc::channel::<T>();
+        let (tx, rx) = crossbeam_channel::unbounded::<T>();
 
         self.elements.par_iter().for_each_with(tx, |tx, element| {
             if range.contains_point(element.get_point()) {
@@ -532,7 +532,7 @@ where
             return elements_in_range;
         }
 
-        let (tx, rx) = mpsc::channel::<Vec<T>>();
+        let (tx, rx) = crossbeam_channel::unbounded::<Vec<T>>();
 
         self.children.par_iter().for_each_with(tx, |tx, child| {
             tx.send(child.read().query_range(range)).unwrap();
