@@ -305,7 +305,7 @@ where
 
         let total_volume = self
             .children
-            .iter()
+            .par_iter()
             .map(|child| {
                 let w = child.write();
                 w.aabb.dimensions.x * w.aabb.dimensions.y * w.aabb.dimensions.z
@@ -336,20 +336,11 @@ where
             }
         }
 
-        let (tx, rx) = crossbeam_channel::unbounded::<T>();
-
-        self.elements.par_iter().for_each_with(tx, |tx, element| {
-            if element == item {
-                tx.send(*element).unwrap();
-            }
-        });
-
-        let to_remove: Vec<T> = rx.into_iter().collect();
         self.elements = self
             .elements
-            .clone()
-            .into_iter()
-            .filter(|element| !to_remove.contains(element))
+            .par_iter()
+            .filter(|element| element.get_point() != item.get_point())
+            .cloned()
             .collect();
 
         if let Paternity::ProudParent = self.paternity {
@@ -367,28 +358,113 @@ where
             }
         }
 
-        let (tx, rx) = crossbeam_channel::unbounded::<T>();
-
-        self.elements.par_iter().for_each_with(tx, |tx, element| {
-            let pt = element.get_point();
-
-            if range.contains_point(pt) {
-                tx.send(*element).unwrap();
-            }
-        });
-
-        let to_remove: Vec<T> = rx.into_iter().collect();
         self.elements = self
             .elements
-            .clone()
-            .into_iter()
-            .filter(|element| !to_remove.contains(element))
+            .par_iter()
+            .filter(|element| !range.contains_point(element.get_point()))
+            .cloned()
             .collect();
 
         if let Paternity::ProudParent = self.paternity {
             self.children.par_iter_mut().for_each(|child| {
                 child.write().remove_range(range);
             });
+        }
+    }
+
+    pub fn insert_elements(&mut self, elements: Vec<T>) -> Result<(), N> {
+        let mut elements = elements
+            .into_par_iter()
+            .filter(|element| self.aabb.contains_point(element.get_point()))
+            .collect::<Vec<T>>();
+
+        if elements.is_empty() {
+            return Err(Error::InsertionError(InsertionError {
+                error_type: InsertionErrorType::OutOfBounds(self.aabb),
+            }));
+        }
+
+        let available = self.max_elements - self.elements.len();
+
+        let mut remaining = Vec::with_capacity(self.max_elements);
+
+        match &self.paternity {
+            Paternity::ChildFree | Paternity::ProudParent
+                if self.max_elements > self.elements.len() =>
+            {
+                remaining = elements.split_off(available.min(elements.len()));
+
+                elements
+                    .par_iter_mut()
+                    .filter_map(|orig| {
+                        self.elements
+                            .iter()
+                            .find(|inc| orig.get_point() == inc.get_point())
+                            .map(|inc| (orig, inc))
+                    })
+                    .for_each(|(orig, inc)| {
+                        *orig = *inc;
+                    });
+
+                let self_els = self.elements.clone();
+
+                self.elements
+                    .par_extend(elements.into_par_iter().filter(|orig| {
+                        !self_els
+                            .iter()
+                            .any(|inc| orig.get_point() != inc.get_point())
+                    }));
+
+                if self.paternity == Paternity::ChildFree
+                    && self.elements.len() == self.max_elements
+                {
+                    self.subdivide()?
+                }
+
+                if self.elements.len() > self.max_elements {
+                    return Err(Error::InsertionError(InsertionError {
+                        error_type: InsertionErrorType::Overflow,
+                    }));
+                }
+            }
+            Paternity::ChildFree => self.subdivide()?,
+
+            _ => {}
+        }
+
+        if remaining.is_empty() {
+            return Ok(());
+        }
+
+        match &self.paternity {
+            Paternity::ProudParent => {
+                let (tx, rx) = crossbeam_channel::unbounded::<Result<(), N>>();
+
+                self.children.par_iter_mut().for_each_with(
+                    (tx, remaining),
+                    |(tx, remaining), child| {
+                        match child.write().insert_elements(remaining.clone()) {
+                            Ok(_) => tx.send(Ok(())),
+                            Err(err) => tx.send(Err(err)),
+                        }
+                        .unwrap();
+                    },
+                );
+
+                let mut received = rx.into_iter();
+                if let Some(r) = received.find(Result::is_ok) {
+                    return r;
+                } else if let Some(r) = received.find(Result::is_ok) {
+                    return r;
+                }
+
+                Err(Error::<N>::InsertionError(InsertionError {
+                    error_type: InsertionErrorType::BlockFull(self.aabb),
+                }))
+            }
+            _ => Err(Error::<N>::InsertionError(InsertionError {
+                error_type: InsertionErrorType::Empty,
+            })),
         }
     }
 
@@ -422,10 +498,7 @@ where
                 return Ok(());
             }
 
-            Paternity::ChildFree => match self.subdivide() {
-                Ok(_) => {}
-                Err(err) => return Err(err),
-            },
+            Paternity::ChildFree => self.subdivide()?,
             _ => {}
         }
 
@@ -478,16 +551,13 @@ where
             return None;
         }
 
-        let (tx, rx) = crossbeam_channel::unbounded::<T>();
-
-        self.elements.par_iter().for_each_with(tx, |tx, element| {
-            if element.get_point() == point {
-                tx.send(*element).unwrap();
-            }
-        });
-
-        if let Some(result) = rx.into_iter().next() {
-            return Some(result);
+        if let Some(found) = self
+            .elements
+            .par_iter()
+            .find_any(|element| element.get_point() == point)
+            .cloned()
+        {
+            return Some(found);
         }
 
         if let Paternity::ChildFree = self.paternity {
@@ -571,6 +641,7 @@ impl<N: Scalar> std::error::Error for SubdivisionError<N> {
 #[derive(Clone, Debug)]
 pub enum InsertionErrorType<N: Scalar> {
     Empty,
+    Overflow,
     BlockFull(Aabb<N>),
     OutOfBounds(Aabb<N>),
 }
