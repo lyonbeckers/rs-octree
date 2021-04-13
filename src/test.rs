@@ -231,13 +231,13 @@ fn overwrite_elements() {
 
     octree.insert_elements(tiles).ok();
 
-    assert_eq!(octree.query_point(Point::new(0, 0, 0)).unwrap().tile, 1);
     assert_eq!(
         octree
             .query_range(Aabb::from_extents(Point::zeros(), Point::zeros()))
             .len(),
         1
     );
+    octree.into_iter().for_each(|td| assert_eq!(td.tile, 1));
 }
 
 #[test]
