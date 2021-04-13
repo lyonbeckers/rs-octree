@@ -237,6 +237,7 @@ fn overwrite_elements() {
             .len(),
         1
     );
+    assert_eq!(octree.count(), count);
     octree.into_iter().for_each(|td| assert_eq!(td.tile, 1));
 }
 
