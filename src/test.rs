@@ -35,11 +35,12 @@ impl PointData<f32> for FloatTileData {
 #[derive(Serialize, Deserialize, PartialEq, Hash, Eq, Copy, Clone, Debug)]
 pub struct TileData {
     point: Point,
+    tile: u32,
 }
 
 impl TileData {
-    pub fn new(point: Point) -> Self {
-        TileData { point }
+    pub fn new(point: Point, tile: u32) -> Self {
+        TileData { point, tile }
     }
 }
 
@@ -59,7 +60,7 @@ fn setup_subscriber() -> impl Subscriber {
 fn from_iter() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
-    let pts: Vec<TileData> = vec![TileData::new(Point::zeros())];
+    let pts: Vec<TileData> = vec![TileData::new(Point::zeros(), 0)];
 
     let mut oct_a: Octree<i32, TileData> = Octree::new(
         Aabb::from_extents(Point::zeros(), Point::zeros()),
@@ -212,6 +213,34 @@ fn volume_one() {
 }
 
 #[test]
+fn overwrite_elements() {
+    tracing::subscriber::set_global_default(setup_subscriber()).ok();
+
+    let aabb = Aabb::new(Point::new(0, 0, 0), Point::new(4, 4, 4));
+
+    let mut octree = Octree::<i32, TileData>::new(aabb, DEFAULT_MAX);
+
+    let mut count = 0;
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
+
+    let tiles = octree.clone().into_iter().collect::<Vec<TileData>>();
+    let tiles = tiles
+        .iter()
+        .map(|tile| TileData::new(tile.point, 1))
+        .collect::<Vec<TileData>>();
+
+    octree.insert_elements(tiles).ok();
+
+    assert_eq!(octree.query_point(Point::new(0, 0, 0)).unwrap().tile, 1);
+    assert_eq!(
+        octree
+            .query_range(Aabb::from_extents(Point::zeros(), Point::zeros()))
+            .len(),
+        1
+    );
+}
+
+#[test]
 fn overwrite_element() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
@@ -222,7 +251,7 @@ fn overwrite_element() {
     let mut count = 0;
     fill_octree(aabb, &mut octree, &mut count).unwrap();
 
-    assert!(octree.insert(TileData::new(Point::zeros())).is_ok());
+    assert!(octree.insert(TileData::new(Point::zeros(), 0)).is_ok());
     assert_eq!(octree.into_iter().count(), count);
 }
 
@@ -410,12 +439,24 @@ fn serialize_deserialize() {
         DEFAULT_MAX,
     );
 
-    octree.insert(TileData::new(Point::new(1, 0, 0))).unwrap();
-    octree.insert(TileData::new(Point::new(0, 1, 0))).unwrap();
-    octree.insert(TileData::new(Point::new(0, 0, 1))).unwrap();
-    octree.insert(TileData::new(Point::new(-1, 0, 0))).unwrap();
-    octree.insert(TileData::new(Point::new(0, -1, 0))).unwrap();
-    octree.insert(TileData::new(Point::new(0, 0, -1))).unwrap();
+    octree
+        .insert(TileData::new(Point::new(1, 0, 0), 0))
+        .unwrap();
+    octree
+        .insert(TileData::new(Point::new(0, 1, 0), 0))
+        .unwrap();
+    octree
+        .insert(TileData::new(Point::new(0, 0, 1), 0))
+        .unwrap();
+    octree
+        .insert(TileData::new(Point::new(-1, 0, 0), 0))
+        .unwrap();
+    octree
+        .insert(TileData::new(Point::new(0, -1, 0), 0))
+        .unwrap();
+    octree
+        .insert(TileData::new(Point::new(0, 0, -1), 0))
+        .unwrap();
 
     let octree_clone = octree.clone();
 
@@ -457,7 +498,7 @@ fn fill_octree(
             for x in min.x..=max.x {
                 *count += 1;
 
-                values.push(TileData::new(Point::new(x, y, z)));
+                values.push(TileData::new(Point::new(x, y, z), 0));
             }
         }
     }

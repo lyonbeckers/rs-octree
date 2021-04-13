@@ -340,7 +340,7 @@ where
             .elements
             .par_iter()
             .filter(|element| element.get_point() != item.get_point())
-            .cloned()
+            .copied()
             .collect();
 
         if let Paternity::ProudParent = self.paternity {
@@ -362,7 +362,7 @@ where
             .elements
             .par_iter()
             .filter(|element| !range.contains_point(element.get_point()))
-            .cloned()
+            .copied()
             .collect();
 
         if let Paternity::ProudParent = self.paternity {
@@ -386,26 +386,31 @@ where
 
         let available = self.max_elements - self.elements.len();
 
-        let mut remaining = Vec::with_capacity(self.max_elements);
+        let dupes = elements
+            .par_iter()
+            .filter_map(|inc| {
+                self.elements
+                    .iter()
+                    .find(|orig| orig.get_point() == inc.get_point())
+                    .map(|_| *inc)
+            })
+            .collect::<Vec<T>>();
+
+        self.elements.par_iter_mut().for_each(|element| {
+            if let Some(dupe) = dupes
+                .iter()
+                .find(|dupe| dupe.get_point() == element.get_point())
+            {
+                *element = *dupe
+            }
+        });
+
+        let remaining = elements.split_off(available.min(elements.len()));
 
         match &self.paternity {
             Paternity::ChildFree | Paternity::ProudParent
                 if self.max_elements > self.elements.len() =>
             {
-                remaining = elements.split_off(available.min(elements.len()));
-
-                elements
-                    .par_iter_mut()
-                    .filter_map(|orig| {
-                        self.elements
-                            .iter()
-                            .find(|inc| orig.get_point() == inc.get_point())
-                            .map(|inc| (orig, inc))
-                    })
-                    .for_each(|(orig, inc)| {
-                        *orig = *inc;
-                    });
-
                 let self_els = self.elements.clone();
 
                 self.elements
@@ -555,7 +560,7 @@ where
             .elements
             .par_iter()
             .find_any(|element| element.get_point() == point)
-            .cloned()
+            .copied()
         {
             return Some(found);
         }
