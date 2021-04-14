@@ -229,6 +229,7 @@ fn overwrite_elements() {
         .map(|tile| TileData::new(tile.point, 1))
         .collect::<Vec<TileData>>();
 
+    assert_eq!(tiles.len(), count);
     octree.insert_elements(tiles).ok();
 
     assert_eq!(

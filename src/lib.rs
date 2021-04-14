@@ -386,24 +386,27 @@ where
 
         let available = self.max_elements - self.elements.len();
 
-        let dupes = elements
-            .par_iter()
-            .filter_map(|inc| {
-                self.elements
-                    .iter()
-                    .find(|orig| orig.get_point() == inc.get_point())
-                    .map(|_| *inc)
-            })
-            .collect::<Vec<T>>();
-
+        //overwrite duplicates
         self.elements.par_iter_mut().for_each(|element| {
-            if let Some(dupe) = dupes
+            if let Some(dupe) = elements
                 .iter()
-                .find(|dupe| dupe.get_point() == element.get_point())
+                .find(|inc| element.get_point() == inc.get_point())
             {
                 *element = *dupe
             }
         });
+
+        //cull out duplicates
+        elements = elements
+            .par_iter()
+            .filter(|inc| {
+                !self
+                    .elements
+                    .iter()
+                    .any(|orig| orig.get_point() == inc.get_point())
+            })
+            .copied()
+            .collect::<Vec<T>>();
 
         let remaining = elements.split_off(available.min(elements.len()));
 
