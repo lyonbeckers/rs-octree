@@ -328,8 +328,8 @@ where
         }
     }
 
-    /// Removes the element which matches item exactly
-    pub fn remove_item(&mut self, item: &T) {
+    /// Removes the element at the point
+    pub fn remove_item(&mut self, point: Vector3<N>) {
         if let Paternity::ChildFree = self.paternity {
             if self.elements.is_empty() {
                 return;
@@ -339,13 +339,13 @@ where
         self.elements = self
             .elements
             .par_iter()
-            .filter(|element| element.get_point() != item.get_point())
+            .filter(|element| element.get_point() != point)
             .copied()
             .collect();
 
         if let Paternity::ProudParent = self.paternity {
             self.children.par_iter_mut().for_each(|child| {
-                child.write().remove_item(item);
+                child.write().remove_item(point);
             });
         }
     }
@@ -414,14 +414,7 @@ where
             Paternity::ChildFree | Paternity::ProudParent
                 if self.max_elements > self.elements.len() =>
             {
-                let self_els = self.elements.clone();
-
-                self.elements
-                    .par_extend(elements.into_par_iter().filter(|orig| {
-                        !self_els
-                            .iter()
-                            .any(|inc| orig.get_point() != inc.get_point())
-                    }));
+                self.elements.par_extend(elements);
 
                 if self.paternity == Paternity::ChildFree
                     && self.elements.len() == self.max_elements

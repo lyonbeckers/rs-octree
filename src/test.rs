@@ -239,7 +239,28 @@ fn overwrite_elements() {
         1
     );
     assert_eq!(octree.count(), count);
-    octree.into_iter().for_each(|td| assert_eq!(td.tile, 1));
+    octree
+        .clone()
+        .into_iter()
+        .for_each(|td| assert_eq!(td.tile, 1));
+
+    octree.remove_item(Point::new(0, 1, 0));
+    octree.remove_item(Point::new(-1, -1, -1));
+
+    assert!(octree.query_point(Point::new(0, 1, 0)).is_none());
+    assert!(octree.query_point(Point::new(-1, -1, -1)).is_none());
+
+    octree
+        .insert_elements(vec![
+            TileData::new(Point::new(0, 1, 0), 0),
+            TileData::new(Point::new(-1, -1, -1), 0),
+        ])
+        .ok();
+    assert_eq!(octree.query_point(Point::new(-1, -1, -1)).unwrap().tile, 0);
+    assert_eq!(octree.query_point(Point::new(0, 1, 0)).unwrap().tile, 0);
+
+    assert_eq!(octree.count(), count);
+    assert_eq!(octree.query_point(Point::new(1, 1, 1)).unwrap().tile, 1);
 }
 
 #[test]
