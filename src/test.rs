@@ -1,13 +1,11 @@
 #![allow(clippy::cast_sign_loss)]
 
-use std::collections::HashSet;
-
-use nalgebra::Vector3;
+use crate::{error, Octree, PointData, DEFAULT_MAX};
+use aabb::Vector3;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashSet, hash::Hash};
 use tracing::Subscriber;
 use tracing_subscriber::EnvFilter;
-
-use crate::{error, geometry::aabb, Octree, PointData, DEFAULT_MAX};
 
 type Point = Vector3<i32>;
 type Aabb = aabb::Aabb<i32>;
@@ -32,11 +30,20 @@ impl PointData<f32> for FloatTileData {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Hash, Eq, Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Copy, Clone, Debug)]
 pub struct TileData {
     point: Point,
     tile: u32,
 }
+
+impl Hash for TileData {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.point.hash(state);
+        self.tile.hash(state);
+    }
+}
+
+impl Eq for TileData {}
 
 impl TileData {
     pub fn new(point: Point, tile: u32) -> Self {
@@ -527,15 +534,4 @@ fn fill_octree(
     }
 
     octree.insert_elements(values)
-}
-
-#[test]
-fn test_aabb_intersection() {
-    let aabb1 = Aabb::from_extents(Point::new(0, 0, 0), Point::new(3, 3, 3));
-    let aabb2 = Aabb::from_extents(Point::new(-1, -1, -1), Point::new(2, 2, 2));
-
-    assert_eq!(
-        Aabb::from_extents(Point::new(0, 0, 0), Point::new(2, 2, 2)),
-        aabb1.get_intersection(aabb2)
-    );
 }
