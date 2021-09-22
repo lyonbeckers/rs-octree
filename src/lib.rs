@@ -3,27 +3,20 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::missing_errors_doc)]
 
-mod agnostic_math;
 pub mod error;
-pub mod geometry;
 #[cfg(test)]
 mod test;
 
 use std::{
     fmt::{self, Debug},
-    iter::{FromIterator, Sum},
-    ops::{AddAssign, DivAssign, SubAssign},
+    iter::FromIterator,
     sync::Arc,
 };
 
-use crate::{
-    agnostic_math::MinMax,
-    error::{Error, Result},
-    geometry::aabb::Aabb,
-};
-use agnostic_math::{vector_abs, AgnosticAbs};
+use crate::error::{Error, Result};
+use aabb::{vector_abs, Aabb, NumTraits};
 use nalgebra::{Scalar, Vector3};
-use num::{traits::Bounded, Num, NumCast};
+use num::{traits::Bounded, NumCast};
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -54,25 +47,6 @@ impl<'a, N: Scalar, T: PointData<N>> Iterator for OctreeIter<N, T> {
             None => None,
         }
     }
-}
-
-pub trait NumTraits:
-    Num + Sum + Scalar + NumCast + MinMax + AgnosticAbs + PartialOrd + AddAssign + SubAssign + DivAssign
-{
-}
-
-impl<T> NumTraits for T where
-    T: Num
-        + Sum
-        + Scalar
-        + NumCast
-        + MinMax
-        + AgnosticAbs
-        + PartialOrd
-        + AddAssign
-        + SubAssign
-        + DivAssign
-{
 }
 
 impl<N, T> IntoIterator for Octree<N, T>
