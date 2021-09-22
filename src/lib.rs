@@ -3,26 +3,34 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::missing_errors_doc)]
 
+mod agnostic_math;
 pub mod error;
+pub mod geometry;
 #[cfg(test)]
 mod test;
 
 use std::{
     fmt::{self, Debug},
-    iter::FromIterator,
+    iter::{FromIterator, Sum},
+    ops::{AddAssign, DivAssign, SubAssign},
     sync::Arc,
 };
 
-use crate::error::{Error, Result};
-use aabb::{agnostic_math, Aabb, NumTraits, Vector3};
-use num::{traits::Bounded, NumCast};
+use crate::{
+    agnostic_math::MinMax,
+    error::{Error, Result},
+    geometry::aabb::Aabb,
+};
+use agnostic_math::{vector_abs, AgnosticAbs};
+use nalgebra::{Scalar, Vector3};
+use num::{traits::Bounded, Num, NumCast};
 use parking_lot::RwLock;
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 pub static DEFAULT_MAX: usize = 32;
 
-pub trait PointData<N: NumTraits + Copy>: Copy {
+pub trait PointData<N: Scalar>: Copy {
     fn get_point(&self) -> Vector3<N>;
 }
 
@@ -33,12 +41,12 @@ enum Paternity {
     ChildFree,
 }
 
-pub struct OctreeIter<N: NumTraits + Copy, T: PointData<N>> {
+pub struct OctreeIter<N: Scalar, T: PointData<N>> {
     elements: std::vec::IntoIter<T>,
     phantom: std::marker::PhantomData<N>,
 }
 
-impl<'a, N: NumTraits + Copy, T: PointData<N>> Iterator for OctreeIter<N, T> {
+impl<'a, N: Scalar, T: PointData<N>> Iterator for OctreeIter<N, T> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
         match self.elements.next() {
@@ -46,6 +54,25 @@ impl<'a, N: NumTraits + Copy, T: PointData<N>> Iterator for OctreeIter<N, T> {
             None => None,
         }
     }
+}
+
+pub trait NumTraits:
+    Num + Sum + Scalar + NumCast + MinMax + AgnosticAbs + PartialOrd + AddAssign + SubAssign + DivAssign
+{
+}
+
+impl<T> NumTraits for T where
+    T: Num
+        + Sum
+        + Scalar
+        + NumCast
+        + MinMax
+        + AgnosticAbs
+        + PartialOrd
+        + AddAssign
+        + SubAssign
+        + DivAssign
+{
 }
 
 impl<N, T> IntoIterator for Octree<N, T>
@@ -112,7 +139,7 @@ where
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[allow(dead_code)]
-pub struct Octree<N: NumTraits + Copy, T: PointData<N>> {
+pub struct Octree<N: Scalar, T: PointData<N>> {
     aabb: Aabb<N>,
     max_elements: usize,
     elements: Vec<T>,
@@ -160,7 +187,7 @@ where
         let min = self.aabb.get_min();
         let max = self.aabb.get_max();
 
-        let dimensions = agnostic_math::vector_abs(self.aabb.dimensions);
+        let dimensions = vector_abs(self.aabb.dimensions);
 
         let smaller_half = dimensions / two;
         let larger_half = dimensions - smaller_half - Vector3::new(adj, adj, adj);
@@ -591,29 +618,29 @@ where
 }
 
 #[derive(Clone, Debug)]
-pub enum SubdivisionErrorType<N: NumTraits> {
+pub enum SubdivisionErrorType<N: Scalar> {
     IncorrectDimensions(N, N),
 }
 
 #[derive(Debug, Clone)]
-pub struct SubdivisionError<N: NumTraits> {
+pub struct SubdivisionError<N: Scalar> {
     error_type: SubdivisionErrorType<N>,
 }
 
-impl<N: NumTraits> fmt::Display for SubdivisionError<N> {
+impl<N: Scalar> fmt::Display for SubdivisionError<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.error_type)
     }
 }
 
-impl<N: NumTraits> std::error::Error for SubdivisionError<N> {
+impl<N: Scalar> std::error::Error for SubdivisionError<N> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
     }
 }
 
 #[derive(Clone, Debug)]
-pub enum InsertionErrorType<N: NumTraits + Copy> {
+pub enum InsertionErrorType<N: Scalar> {
     Empty,
     Overflow,
     BlockFull(Aabb<N>),
@@ -621,17 +648,17 @@ pub enum InsertionErrorType<N: NumTraits + Copy> {
 }
 
 #[derive(Debug, Clone)]
-pub struct InsertionError<N: NumTraits + Copy> {
+pub struct InsertionError<N: Scalar> {
     error_type: InsertionErrorType<N>,
 }
 
-impl<N: NumTraits + Copy> fmt::Display for InsertionError<N> {
+impl<N: Scalar> fmt::Display for InsertionError<N> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.error_type)
     }
 }
 
-impl<N: NumTraits + Copy> std::error::Error for InsertionError<N> {
+impl<N: Scalar> std::error::Error for InsertionError<N> {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         None
     }

@@ -1,10 +1,10 @@
-use aabb::NumTraits;
+use nalgebra::Scalar;
 use thiserror::Error;
 
 use crate::{InsertionError, SubdivisionError};
 
 #[derive(Error, Debug)]
-pub enum Error<N: NumTraits + Copy> {
+pub enum Error<N: Scalar> {
     #[error("insertion error: {0}")]
     InsertionError(#[from] InsertionError<N>),
 
