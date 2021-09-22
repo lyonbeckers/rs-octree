@@ -41,7 +41,10 @@ pub struct OctreeIter<N: NumTraits + Copy, T: PointData<N>> {
 impl<'a, N: NumTraits + Copy, T: PointData<N>> Iterator for OctreeIter<N, T> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
-        self.elements.next()
+        match self.elements.next() {
+            Some(r) => Some(r),
+            None => None,
+        }
     }
 }
 
@@ -362,7 +365,7 @@ where
                 .iter()
                 .find(|inc| element.get_point() == inc.get_point())
             {
-                *element = *dupe;
+                *element = *dupe
             }
         });
 
@@ -389,7 +392,7 @@ where
                 if self.paternity == Paternity::ChildFree
                     && self.elements.len() == self.max_elements
                 {
-                    self.subdivide()?;
+                    self.subdivide()?
                 }
 
                 if self.elements.len() > self.max_elements {
@@ -399,7 +402,8 @@ where
                 }
             }
             Paternity::ChildFree => self.subdivide()?,
-            Paternity::ProudParent => {}
+
+            _ => {}
         }
 
         if remaining.is_empty() {
@@ -432,7 +436,7 @@ where
                     error_type: InsertionErrorType::BlockFull(self.aabb),
                 }))
             }
-            Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
+            _ => Err(Error::<N>::InsertionError(InsertionError {
                 error_type: InsertionErrorType::Empty,
             })),
         }
@@ -469,7 +473,7 @@ where
             }
 
             Paternity::ChildFree => self.subdivide()?,
-            Paternity::ProudParent => {}
+            _ => {}
         }
 
         match &self.paternity {
@@ -496,7 +500,7 @@ where
                 }))
             }
 
-            Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
+            _ => Err(Error::<N>::InsertionError(InsertionError {
                 error_type: InsertionErrorType::Empty,
             })),
         }
@@ -579,7 +583,7 @@ where
         });
 
         for mut received in rx {
-            elements_in_range.append(&mut received);
+            elements_in_range.append(&mut received)
         }
 
         elements_in_range
