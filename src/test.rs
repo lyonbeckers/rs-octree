@@ -450,7 +450,7 @@ fn remove_all() {
     println!("removing...");
     octree.remove_range(aabb);
 
-    assert!(octree.into_iter().count() == 0)
+    assert!(octree.into_iter().count() == 0);
 }
 
 #[test]

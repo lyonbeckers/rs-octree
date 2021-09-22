@@ -42,10 +42,7 @@ pub struct OctreeIter<N: Scalar, T: PointData<N>> {
 impl<'a, N: Scalar, T: PointData<N>> Iterator for OctreeIter<N, T> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
-        match self.elements.next() {
-            Some(r) => Some(r),
-            None => None,
-        }
+        self.elements.next()
     }
 }
 
@@ -366,7 +363,7 @@ where
                 .iter()
                 .find(|inc| element.get_point() == inc.get_point())
             {
-                *element = *dupe
+                *element = *dupe;
             }
         });
 
@@ -393,7 +390,7 @@ where
                 if self.paternity == Paternity::ChildFree
                     && self.elements.len() == self.max_elements
                 {
-                    self.subdivide()?
+                    self.subdivide()?;
                 }
 
                 if self.elements.len() > self.max_elements {
@@ -403,8 +400,7 @@ where
                 }
             }
             Paternity::ChildFree => self.subdivide()?,
-
-            _ => {}
+            Paternity::ProudParent => {}
         }
 
         if remaining.is_empty() {
@@ -437,7 +433,7 @@ where
                     error_type: InsertionErrorType::BlockFull(self.aabb),
                 }))
             }
-            _ => Err(Error::<N>::InsertionError(InsertionError {
+            Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
                 error_type: InsertionErrorType::Empty,
             })),
         }
@@ -474,7 +470,7 @@ where
             }
 
             Paternity::ChildFree => self.subdivide()?,
-            _ => {}
+            Paternity::ProudParent => {}
         }
 
         match &self.paternity {
@@ -501,7 +497,7 @@ where
                 }))
             }
 
-            _ => Err(Error::<N>::InsertionError(InsertionError {
+            Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
                 error_type: InsertionErrorType::Empty,
             })),
         }
@@ -584,7 +580,7 @@ where
         });
 
         for mut received in rx {
-            elements_in_range.append(&mut received)
+            elements_in_range.append(&mut received);
         }
 
         elements_in_range
