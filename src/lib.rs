@@ -10,6 +10,7 @@ mod test;
 use std::{
     fmt::{self, Debug},
     iter::FromIterator,
+    marker::PhantomData,
     sync::{atomic::AtomicUsize, Arc, Weak},
 };
 
@@ -36,7 +37,7 @@ enum Paternity {
 
 pub struct OctreeIter<N: Scalar, T: PointData<N>> {
     elements: std::vec::IntoIter<T>,
-    phantom: std::marker::PhantomData<N>,
+    phantom: PhantomData<N>,
 }
 
 impl<'a, N: Scalar, T: PointData<N>> Iterator for OctreeIter<N, T> {
@@ -57,7 +58,7 @@ where
         let aabb = self.aabb;
         OctreeIter {
             elements: self.query_range(aabb).into_iter(),
-            phantom: std::marker::PhantomData,
+            phantom: PhantomData,
         }
     }
 }
@@ -111,6 +112,7 @@ where
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct OctreeVec<N, T, const S: usize>
 where
     N: Scalar,
@@ -124,6 +126,12 @@ where
     N: Scalar,
     T: PointData<N>,
 {
+    pub fn new() -> Self {
+        Self {
+            container: Vec::new(),
+        }
+    }
+
     pub fn position(&self, id: usize) -> Option<usize> {
         self.container.iter().position(|o| o.read().id == id)
     }
@@ -133,14 +141,148 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ElementArray<N: Scalar, T: PointData<N>, const S: usize> {
+    #[serde(with = "serde_arrays")]
+    array: [Option<T>; S],
+    phantom: PhantomData<N>,
+    length: usize,
+}
+
+impl<N, T, const S: usize> ElementArray<N, T, S>
+where
+    N: NumTraits + Send + Sync + Copy,
+    T: PointData<N> + Send + Sync + Debug,
+{
+    pub fn new() -> Self {
+        Self {
+            array: [None; S],
+            phantom: PhantomData,
+            length: 0,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.array.par_iter().any(|e| e.is_some())
+    }
+
+    pub fn insert(&mut self, element: T) -> Result<(), N> {
+        if let Some(empty) = self.array.par_iter_mut().find_any(|e| e.is_none()) {
+            *empty = Some(element);
+            self.length += 1;
+            return Ok(());
+        };
+
+        Err(Error::InsertionError(InsertionError {
+            error_type: InsertionErrorType::Overflow,
+        }))
+    }
+
+    pub fn remove(&mut self, element: T) {
+        let point = element.get_point();
+        if let Some(element) = self
+            .array
+            .par_iter_mut()
+            .find_any(|element| element.map(|e| e.get_point() == point).unwrap_or(false))
+        {
+            _ = element.take();
+            self.length -= 1;
+        }
+    }
+
+    pub fn elements_in_range(&self, range: Aabb<N>) -> Vec<T> {
+        self.array
+            .par_iter()
+            .filter(|element| {
+                element
+                    .map(|e| range.contains_point(e.get_point()))
+                    .unwrap_or(false)
+            })
+            .map(|e| e.unwrap())
+            .collect::<Vec<T>>()
+    }
+
+    pub fn remove_range(&mut self, range: Aabb<N>) {
+        self.length -= self
+            .array
+            .par_iter_mut()
+            .filter(|element| {
+                element
+                    .map(|e| range.contains_point(e.get_point()))
+                    .unwrap_or(false)
+            })
+            .map(|element| {
+                _ = element.take();
+            })
+            .count();
+    }
+
+    /// Drains duplicates from the Vec<T>, replacing existing elements at their respective points
+    pub fn drain_duplicates(&mut self, elements: &mut Vec<T>) {
+        //overwrite duplicates
+        self.array.par_iter_mut().for_each(|element| {
+            if let Some(dupe) = elements.iter().find(|inc| {
+                element
+                    .map(|e| e.get_point() == inc.get_point())
+                    .unwrap_or(false)
+            }) {
+                element.replace(*dupe);
+            }
+        });
+
+        dbg!(&self.array);
+
+        //cull out duplicates
+        elements.retain(|inc| {
+            !self.array.par_iter().any(|orig| {
+                orig.map(|e| e.get_point() == inc.get_point())
+                    .unwrap_or(false)
+            })
+        });
+    }
+
+    /// Replaces an element at its position if possible, returning true if so.
+    pub fn replace(&mut self, element: T) -> bool {
+        let pt = element.get_point();
+        if let Some(dupe_element) = self
+            .array
+            .par_iter_mut()
+            .filter_map(|element| element.as_mut())
+            .find_any(|element| element.get_point() == pt)
+        {
+            *dupe_element = element;
+            return true;
+        }
+
+        false
+    }
+
+    pub fn find_at_point(&self, point: Vector3<N>) -> Option<T> {
+        if let Some(found) = self
+            .array
+            .par_iter()
+            .find_any(|element| element.map(|e| e.get_point() == point).unwrap_or(false))
+        {
+            return found.to_owned();
+        }
+
+        None
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct Octree<N: Scalar, T: PointData<N>, const S: usize> {
     aabb: Aabb<N>,
     id: usize,
-    elements: [Option<T>; S],
+    // TODO: need a serialization fix here
+    #[serde(with = "")]
+    elements: Arc<RwLock<ElementArray<N, T, S>>>,
     /// The number of items in the elements array
-    length: usize,
     children: [Option<Arc<RwLock<Self>>>; 8],
     parent: Option<Arc<RwLock<Self>>>,
     container: Arc<RwLock<OctreeVec<N, T, S>>>,
@@ -164,8 +306,7 @@ where
         let octree = Arc::new(RwLock::new(Self {
             id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             aabb,
-            elements: [None; S],
-            length: 0,
+            elements: Arc::new(RwLock::new(ElementArray::new())),
             children: [None, None, None, None, None, None, None, None],
             parent: parent.clone(),
             container,
@@ -174,8 +315,12 @@ where
         }));
 
         let weak = Arc::downgrade(&octree);
-        octree.write().lock = Arc::new(weak.clone());
+        println!("Acquiring lock");
+        {
+            octree.write().lock = Arc::new(weak.clone());
+        }
 
+        println!("Trying to read");
         let octree_lock = octree.read();
 
         let mut container_mut = octree_lock.container.write();
@@ -183,6 +328,7 @@ where
             .position(parent.map_or(0, |p| p.read().id))
             .unwrap_or(0);
         container_mut.insert(index, octree.clone());
+        println!("hello");
 
         octree.clone()
     }
@@ -394,18 +540,9 @@ where
     /// Removes the element at the point
     pub fn remove_item(&mut self, point: Vector3<N>) {
         if let Paternity::ChildFree = self.paternity {
-            if self.elements.is_empty() {
+            if self.elements.read().is_empty() {
                 return;
             }
-        }
-
-        if let Some(element) = self
-            .elements
-            .par_iter_mut()
-            .find_any(|element| element.map(|e| e.get_point() == point).unwrap_or(false))
-        {
-            _ = element.take();
-            self.length -= 1;
         }
 
         if let Paternity::ProudParent = self.paternity {
@@ -420,23 +557,12 @@ where
     /// Removes all elements which fit inside range, silently avoiding positions that do not fit inside the octree
     pub fn remove_range(&mut self, range: Aabb<N>) {
         if let Paternity::ChildFree = self.paternity {
-            if self.elements.is_empty() {
+            if self.elements.read().is_empty() {
                 return;
             }
         }
 
-        self.length -= self
-            .elements
-            .par_iter_mut()
-            .filter(|element| {
-                element
-                    .map(|e| range.contains_point(e.get_point()))
-                    .unwrap_or(false)
-            })
-            .map(|element| {
-                _ = element.take();
-            })
-            .count();
+        self.elements.write().remove_range(range);
 
         if let Paternity::ProudParent = self.paternity {
             self.children.par_iter_mut().for_each(|child| {
@@ -459,50 +585,33 @@ where
             }));
         }
 
-        let available = S - self.length;
+        let available = S - self.elements.read().len();
 
-        //overwrite duplicates
-        self.elements.par_iter_mut().for_each(|element| {
-            if let Some(dupe) = elements.iter().find(|inc| {
-                element
-                    .map(|e| e.get_point() == inc.get_point())
-                    .unwrap_or(false)
-            }) {
-                element.replace(*dupe);
-            }
-        });
+        dbg!(available);
 
-        //cull out duplicates
-        elements.retain(|inc| {
-            !self.elements.iter().any(|orig| {
-                orig.map(|e| e.get_point() == inc.get_point())
-                    .unwrap_or(false)
-            })
-        });
+        self.elements.write().drain_duplicates(&mut elements);
+
+        dbg!(&self.elements);
 
         let remaining = elements.split_off(available.min(elements.len()));
 
+        dbg!(&remaining);
+
+        let len = self.elements.read().len();
+        let elements_clone = self.elements.clone();
         match &self.paternity {
-            Paternity::ChildFree | Paternity::ProudParent if S > self.length => {
+            Paternity::ChildFree | Paternity::ProudParent if S > len => {
                 let lock = self.lock.clone();
                 elements
                     .par_iter()
-                    .flat_map(|e| {
-                        lock.upgrade()
-                            .ok_or_else(|| {
-                                Error::InsertionError::<N>(InsertionError {
-                                    error_type: InsertionErrorType::DroppedSelf,
-                                })
-                            })
-                            .map(|l| l.write().insert_internal(*e))
-                    })
+                    .map(|e| elements_clone.clone().write().insert(*e))
                     .collect::<Result<Vec<_>, _>>()?;
 
-                if self.paternity == Paternity::ChildFree && self.length == S {
+                if self.paternity == Paternity::ChildFree && len == S {
                     self.subdivide()?;
                 }
 
-                if self.length > S {
+                if len > S {
                     return Err(Error::InsertionError(InsertionError {
                         error_type: InsertionErrorType::Overflow,
                     }));
@@ -563,18 +672,6 @@ where
         }
     }
 
-    fn insert_internal(&mut self, element: T) -> Result<(), N> {
-        if let Some(empty) = self.elements.iter_mut().find(|e| e.is_none()) {
-            *empty = Some(element);
-            self.length += 1;
-            return Ok(());
-        };
-
-        Err(Error::InsertionError(InsertionError {
-            error_type: InsertionErrorType::Overflow,
-        }))
-    }
-
     pub fn insert(&mut self, element: T) -> Result<(), N> {
         let pt = element.get_point();
 
@@ -585,20 +682,16 @@ where
         }
 
         //if element already exists at point, replace it
-        if let Some(dupe_element) = self
-            .elements
-            .par_iter_mut()
-            .filter_map(|element| element.as_mut())
-            .find_any(|element| element.get_point() == pt)
-        {
-            *dupe_element = element;
+        if self.elements.write().replace(element) {
             return Ok(());
         }
 
+        let len = self.elements.read().len();
+
         //do first match because you still need to insert into children after subdividing, not either/or
         match &self.paternity {
-            Paternity::ChildFree | Paternity::ProudParent if S > self.length => {
-                self.insert_internal(element)?;
+            Paternity::ChildFree | Paternity::ProudParent if S > len => {
+                self.elements.write().insert(element)?;
 
                 return Ok(());
             }
@@ -641,7 +734,7 @@ where
     }
 
     pub fn count(&self) -> usize {
-        let mut count: usize = self.elements.len();
+        let mut count: usize = self.elements.read().len();
 
         match &self.paternity {
             Paternity::ChildFree => count,
@@ -661,13 +754,8 @@ where
             return None;
         }
 
-        if let Some(found) = self
-            .elements
-            .par_iter()
-            .find_any(|element| element.map(|e| e.get_point() == point).unwrap_or(false))
-            .cloned()
-        {
-            return found;
+        if let Some(found) = self.elements.read().find_at_point(point) {
+            return Some(found);
         }
 
         if let Paternity::ChildFree = self.paternity {
@@ -696,24 +784,12 @@ where
         }
 
         if let Paternity::ChildFree = self.paternity {
-            if self.elements.is_empty() {
+            if self.elements.read().is_empty() {
                 return elements_in_range;
             }
         }
 
-        let (tx, rx) = crossbeam_channel::unbounded::<T>();
-
-        self.elements.par_iter().for_each_with(tx, |tx, element| {
-            if let Some(element) = element {
-                if range.contains_point(element.get_point()) {
-                    tx.send(*element)
-                        // TODO: nooo
-                        .unwrap();
-                }
-            }
-        });
-
-        elements_in_range.extend(rx.into_iter());
+        elements_in_range.extend(self.elements.read().elements_in_range(range));
 
         if let Paternity::ChildFree = self.paternity {
             return elements_in_range;
