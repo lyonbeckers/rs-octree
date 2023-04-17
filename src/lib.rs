@@ -20,9 +20,9 @@ use nalgebra::{Scalar, Vector3};
 use num::{traits::Bounded, NumCast};
 use parking_lot::RwLock;
 use rayon::prelude::*;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::Visitor, ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 
-const NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub trait PointData<N: Scalar>: Copy {
     fn get_point(&self) -> Vector3<N>;
@@ -40,7 +40,7 @@ pub struct OctreeIter<N, T> {
     phantom: PhantomData<N>,
 }
 
-impl<'a, N: Scalar, T: PointData<N>> Iterator for OctreeIter<N, T> {
+impl<N: Scalar, T: PointData<N>> Iterator for OctreeIter<N, T> {
     type Item = T;
     fn next(&mut self) -> Option<T> {
         self.elements.next()
@@ -63,12 +63,16 @@ where
     }
 }
 
-pub struct OctreeProvider<N: Scalar, T, const S: usize> {
+pub struct OctreeProvider<N: Scalar, T: Copy, const S: usize> {
     octree: Arc<RwLock<Octree<N, T, S>>>,
     container: Arc<RwLock<OctreeVec<N, T, S>>>,
 }
 
-impl<N: Scalar, T, const S: usize> OctreeProvider<N, T, S> {
+impl<N, T, const S: usize> OctreeProvider<N, T, S>
+where
+    N: Scalar,
+    T: Copy,
+{
     pub fn get_octree(&self) -> Arc<RwLock<Octree<N, T, S>>> {
         self.octree.clone()
     }
@@ -130,8 +134,9 @@ where
     }
 }
 
-// #[derive(Serialize, Deserialize)]
-pub struct OctreeVec<N: Scalar, T, const S: usize> {
+#[derive(Serialize, Deserialize)]
+pub struct OctreeVec<N: Scalar, T: Copy, const S: usize> {
+    #[serde(skip)]
     container: Vec<Arc<RwLock<Octree<N, T, S>>>>,
 }
 
@@ -155,13 +160,84 @@ where
     }
 }
 
-// #[serde_as]
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FakeElementArray<N, T, const S: usize> {
+    array: [Option<T>; 5],
+    phantom: PhantomData<N>,
+    length: usize,
+}
+
 pub struct ElementArray<N, T, const S: usize> {
-    //    #[serde_as(as = "[Option<T>; S]")]
     array: [Option<T>; S],
     phantom: PhantomData<N>,
     length: usize,
+}
+
+impl<N, T, const L: usize> Serialize for ElementArray<N, T, L>
+where
+    T: Serialize,
+{
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(L))?;
+        for element in &self.array {
+            seq.serialize_element(element)?;
+        }
+        seq.end()
+    }
+}
+
+impl<'de, N, T, const S: usize> Deserialize<'de> for ElementArray<N, T, S>
+where
+    T: Copy + Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ElementArrayVisitor<N, T, const S: usize> {
+            phantom_n: PhantomData<N>,
+            phantom_t: PhantomData<T>,
+        }
+
+        impl<'de, N, T, const S: usize> Visitor<'de> for ElementArrayVisitor<N, T, S>
+        where
+            T: Copy + Deserialize<'de>,
+        {
+            type Value = ElementArray<N, T, S>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct ElementArray")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> std::result::Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut array = [None; S];
+                let mut length = 0;
+                for i in 0..S {
+                    if let Some(element) = seq.next_element()? {
+                        array[i] = element;
+                        length += 1;
+                    }
+                }
+
+                Ok(ElementArray {
+                    array,
+                    phantom: PhantomData,
+                    length,
+                })
+            }
+        }
+
+        deserializer.deserialize_seq(ElementArrayVisitor {
+            phantom_n: PhantomData,
+            phantom_t: PhantomData,
+        })
+    }
 }
 
 impl<N, T, const S: usize> ElementArray<N, T, S>
@@ -287,30 +363,28 @@ where
     }
 }
 
-// #[serde_as]
-#[derive(Clone)]
-#[allow(dead_code)]
-pub struct Octree<N: Scalar, T, const S: usize> {
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Octree<N: Scalar, T: Copy, const S: usize> {
     aabb: Aabb<N>,
     id: usize,
-    //    #[serde_as(as = "Arc<RwLock<ElementArray<N, T, S>>>")]
     elements: Arc<RwLock<ElementArray<N, T, S>>>,
-    /// The number of items in the elements array
     children: [Option<Arc<RwLock<Self>>>; 8],
     parent: Option<Arc<RwLock<Self>>>,
     container: Arc<RwLock<OctreeVec<N, T, S>>>,
     paternity: Paternity,
+    #[serde(skip)]
     lock: Arc<Weak<RwLock<Self>>>,
 }
 
-// #[serde_as]
-// #[derive(Serialize, Deserialize)]
-pub struct FakeOctree<N, T, const S: usize> {
-    //    #[serde_as(as = "Arc<RwLock<ElementArray<N, T, S>>>")]
-    elements: Arc<RwLock<ElementArray<N, T, S>>>,
+#[derive(Serialize, Deserialize, Clone)]
+pub struct FakeOctree<N: Scalar, T, const S: usize> {
+    aabb: Aabb<N>,
+    id: usize,
+    elements: Arc<RwLock<FakeElementArray<N, T, S>>>,
+    phantom_n: PhantomData<N>,
+    phantom_t: PhantomData<T>,
 }
 
-#[allow(dead_code)]
 impl<N, T, const S: usize> Octree<N, T, S>
 where
     N: Sync + Send + NumTraits + Copy + Clone,
@@ -343,13 +417,7 @@ where
         let index = octree_lock
             .parent
             .clone()
-            .and_then(|p| {
-                container
-                    .read()
-                    // TODO: fuck this doesn't work, for subdivision, the parents is already locked from
-                    // the mut
-                    .position(&p)
-            })
+            .and_then(|p| container.read().position(&p))
             .unwrap_or(0);
         octree_lock.container.write().insert(index, octree.clone());
 
@@ -633,35 +701,17 @@ where
         }
 
         match &self.paternity {
-            Paternity::ProudParent => {
-                // TODO: come on now
-                let (tx, rx) = crossbeam_channel::unbounded::<Result<(), N>>();
-
-                self.children.par_iter_mut().for_each_with(
-                    (tx, remaining),
-                    |(tx, remaining), child| {
-                        if let Some(child) = child {
-                            match child.write().insert_elements(remaining.clone()) {
-                                Ok(_) => tx.send(Ok(())),
-                                Err(err) => tx.send(Err(err)),
-                            }
-                            // TODO: nooo
-                            .unwrap();
-                        }
-                    },
-                );
-
-                let mut received = rx.into_iter();
-                if let Some(r) = received.find(Result::is_ok) {
-                    return r;
-                } else if let Some(r) = received.find(Result::is_ok) {
-                    return r;
-                }
-
-                Err(Error::<N>::InsertionError(InsertionError {
-                    error_type: InsertionErrorType::BlockFull(self.aabb),
-                }))
-            }
+            Paternity::ProudParent => self
+                .children
+                .par_iter_mut()
+                .filter_map(|child| {
+                    child
+                        .as_mut()
+                        .map(|c| c.write().insert_elements(remaining.clone()))
+                })
+                .filter(|r| r.is_ok())
+                .collect::<Result<Vec<_>, N>>()
+                .map(|_| ()),
             Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
                 error_type: InsertionErrorType::Empty,
             })),
@@ -709,33 +759,13 @@ where
         }
 
         match &self.paternity {
-            Paternity::ProudParent => {
-                // TODO: come on now
-                let (tx, rx) = crossbeam_channel::unbounded::<Result<(), N>>();
-
-                self.children.par_iter().for_each_with(tx, |tx, child| {
-                    if let Some(child) = child {
-                        match child.write().insert(element) {
-                            Ok(_) => tx.send(Ok(())),
-                            Err(err) => tx.send(Err(err)),
-                        }
-                        // TODO: nooo
-                        .unwrap();
-                    }
-                });
-
-                let mut received = rx.into_iter();
-                if let Some(r) = received.find(Result::is_ok) {
-                    return r;
-                } else if let Some(r) = received.find(Result::is_ok) {
-                    return r;
-                }
-
-                Err(Error::<N>::InsertionError(InsertionError {
-                    error_type: InsertionErrorType::BlockFull(self.aabb),
-                }))
-            }
-
+            Paternity::ProudParent => self
+                .children
+                .par_iter_mut()
+                .filter_map(|child| child.as_mut().map(|c| c.write().insert(element)))
+                .filter(|r| r.is_ok())
+                .collect::<Result<Vec<_>, N>>()
+                .map(|_| ()),
             Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
                 error_type: InsertionErrorType::Empty,
             })),

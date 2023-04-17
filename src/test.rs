@@ -33,7 +33,7 @@ impl PointData<f32> for FloatTileData {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Hash, Eq, Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Hash, Eq, Copy, Clone, Default, Debug)]
 pub struct TileData {
     point: Point,
     tile: u32,
@@ -508,68 +508,68 @@ fn remove_all() {
     assert!(octree.read().clone().into_iter().count() == 0);
 }
 
-// #[test]
-// fn serialize_deserialize() {
-//     tracing::subscriber::set_global_default(setup_subscriber()).ok();
-//
-//     let container = Arc::new(RwLock::new(OctreeVec::new()));
-//     let octree = Octree::<i32, TileData, 32>::new(
-//         Aabb::from_extents(Point::new(-5, -5, -5), Point::new(5, 5, 5)),
-//         None,
-//         container,
-//     );
-//
-//     octree
-//         .write()
-//         .insert(TileData::new(Point::new(1, 0, 0), 0))
-//         .unwrap();
-//     octree
-//         .write()
-//         .insert(TileData::new(Point::new(0, 1, 0), 0))
-//         .unwrap();
-//     octree
-//         .write()
-//         .insert(TileData::new(Point::new(0, 0, 1), 0))
-//         .unwrap();
-//     octree
-//         .write()
-//         .insert(TileData::new(Point::new(-1, 0, 0), 0))
-//         .unwrap();
-//     octree
-//         .write()
-//         .insert(TileData::new(Point::new(0, -1, 0), 0))
-//         .unwrap();
-//     octree
-//         .write()
-//         .insert(TileData::new(Point::new(0, 0, -1), 0))
-//         .unwrap();
-//
-//     let octree_clone = octree.clone();
-//
-//     let pretty = ron::ser::PrettyConfig::default();
-//     let ser_ron = match ron::ser::to_string_pretty(&octree, pretty) {
-//         Ok(r) => {
-//             println!("{:?}", r);
-//             r
-//         }
-//         Err(err) => {
-//             panic!("{:?}", err);
-//         }
-//     };
-//
-//     let round_trip: Octree<i32, TileData, 32> = ron::de::from_str(&ser_ron).unwrap();
-//
-//     assert!(
-//         octree_clone
-//             .read()
-//             .clone()
-//             .into_iter()
-//             .collect::<HashSet<TileData>>()
-//             .symmetric_difference(&round_trip.into_iter().collect::<HashSet<TileData>>())
-//             .count()
-//             == 0
-//     );
-// }
+#[test]
+fn serialize_deserialize() {
+    tracing::subscriber::set_global_default(setup_subscriber()).ok();
+
+    let container = Arc::new(RwLock::new(OctreeVec::new()));
+    let octree = Octree::<i32, TileData, 32>::new(
+        Aabb::from_extents(Point::new(-5, -5, -5), Point::new(5, 5, 5)),
+        None,
+        container,
+    );
+
+    octree
+        .write()
+        .insert(TileData::new(Point::new(1, 0, 0), 0))
+        .unwrap();
+    octree
+        .write()
+        .insert(TileData::new(Point::new(0, 1, 0), 0))
+        .unwrap();
+    octree
+        .write()
+        .insert(TileData::new(Point::new(0, 0, 1), 0))
+        .unwrap();
+    octree
+        .write()
+        .insert(TileData::new(Point::new(-1, 0, 0), 0))
+        .unwrap();
+    octree
+        .write()
+        .insert(TileData::new(Point::new(0, -1, 0), 0))
+        .unwrap();
+    octree
+        .write()
+        .insert(TileData::new(Point::new(0, 0, -1), 0))
+        .unwrap();
+
+    let octree_clone = octree.clone();
+
+    let pretty = ron::ser::PrettyConfig::default();
+    let ser_ron = match ron::ser::to_string_pretty(&octree, pretty) {
+        Ok(r) => {
+            println!("{:?}", r);
+            r
+        }
+        Err(err) => {
+            panic!("{:?}", err);
+        }
+    };
+
+    let round_trip: Octree<i32, TileData, 32> = ron::de::from_str(&ser_ron).unwrap();
+
+    assert!(
+        octree_clone
+            .read()
+            .clone()
+            .into_iter()
+            .collect::<HashSet<TileData>>()
+            .symmetric_difference(&round_trip.into_iter().collect::<HashSet<TileData>>())
+            .count()
+            == 0
+    );
+}
 
 fn fill_octree<const S: usize>(
     aabb: Aabb,
