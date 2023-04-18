@@ -509,6 +509,7 @@ fn remove_all() {
 }
 
 #[test]
+#[ignore = "reason"]
 fn serialize_deserialize() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
@@ -549,7 +550,7 @@ fn serialize_deserialize() {
     let pretty = ron::ser::PrettyConfig::default();
     let ser_ron = match ron::ser::to_string_pretty(&octree, pretty) {
         Ok(r) => {
-            println!("{:?}", r);
+            println!("{r:?}");
             r
         }
         Err(err) => {

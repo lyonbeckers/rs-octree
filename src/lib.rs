@@ -73,10 +73,12 @@ where
     N: Scalar,
     T: Copy,
 {
+    #[must_use]
     pub fn get_octree(&self) -> Arc<RwLock<Octree<N, T, S>>> {
         self.octree.clone()
     }
 
+    #[must_use]
     pub fn get_container(&self) -> Arc<RwLock<OctreeVec<N, T, S>>> {
         self.container.clone()
     }
@@ -134,10 +136,98 @@ where
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Default)]
 pub struct OctreeVec<N: Scalar, T: Copy, const S: usize> {
-    #[serde(skip)]
     container: Vec<Arc<RwLock<Octree<N, T, S>>>>,
+}
+
+impl<'de, N, T, const S: usize> Deserialize<'de> for OctreeVec<N, T, S>
+where
+    N: Scalar + Default + Deserialize<'de>,
+    T: Copy + Default + Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct Container;
+
+        impl<'de> Deserialize<'de> for Container {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                struct ContainerVisitor;
+
+                impl<'de> Visitor<'de> for ContainerVisitor {
+                    type Value = Container;
+
+                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                        formatter.write_str("container")
+                    }
+
+                    fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match v {
+                            "container" => Ok(Container),
+                            field => Err(serde::de::Error::unknown_field(field, &["container"])),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(ContainerVisitor)
+            }
+        }
+
+        struct OctreeVecVisitor<N: Scalar + Default, T: Copy + Default, const S: usize> {
+            phantom_n: PhantomData<N>,
+            phantom_t: PhantomData<T>,
+        }
+
+        impl<'de, N, T, const S: usize> Visitor<'de> for OctreeVecVisitor<N, T, S>
+        where
+            N: Scalar + Default + Deserialize<'de>,
+            T: Copy + Default + Deserialize<'de>,
+        {
+            type Value = OctreeVec<N, T, S>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct OctreeVec")
+            }
+
+            fn visit_map<A>(self, mut map: A) -> std::result::Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let mut container = None;
+                while let Some(key) = map.next_key::<Container>()? {
+                    match key {
+                        Container => {
+                            if container.is_some() {
+                                return Err(serde::de::Error::duplicate_field("container"));
+                            }
+                            container = Some(map.next_value()?)
+                        }
+                    }
+                }
+
+                let container =
+                    container.ok_or_else(|| serde::de::Error::missing_field("container"))?;
+
+                Ok(OctreeVec { container })
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "OctreeVec",
+            &["container"],
+            OctreeVecVisitor {
+                phantom_n: PhantomData,
+                phantom_t: PhantomData,
+            },
+        )
+    }
 }
 
 impl<N, T, const S: usize> OctreeVec<N, T, S>
@@ -145,14 +235,22 @@ where
     N: Scalar,
     T: PointData<N>,
 {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             container: Vec::new(),
         }
     }
 
+    #[must_use]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            container: Vec::with_capacity(capacity),
+        }
+    }
+
     pub fn position(&self, other: &Arc<RwLock<Octree<N, T, S>>>) -> Option<usize> {
-        self.container.iter().position(|o| Arc::ptr_eq(o, &other))
+        self.container.iter().position(|o| Arc::ptr_eq(o, other))
     }
 
     pub fn insert(&mut self, index: usize, octree: Arc<RwLock<Octree<N, T, S>>>) {
@@ -160,22 +258,28 @@ where
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FakeElementArray<N, T, const S: usize> {
-    array: [Option<T>; 5],
-    phantom: PhantomData<N>,
-    length: usize,
-}
-
-pub struct ElementArray<N, T, const S: usize> {
+pub struct ElementArray<N, T: Copy, const S: usize> {
     array: [Option<T>; S],
     phantom: PhantomData<N>,
     length: usize,
 }
 
+impl<N, T, const S: usize> Default for ElementArray<N, T, S>
+where
+    T: Copy,
+{
+    fn default() -> Self {
+        Self {
+            array: [None; S],
+            phantom: PhantomData,
+            length: 0,
+        }
+    }
+}
+
 impl<N, T, const L: usize> Serialize for ElementArray<N, T, L>
 where
-    T: Serialize,
+    T: Serialize + Copy,
 {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
     where
@@ -218,9 +322,9 @@ where
             {
                 let mut array = [None; S];
                 let mut length = 0;
-                for i in 0..S {
+                for item in array.iter_mut().take(S) {
                     if let Some(element) = seq.next_element()? {
-                        array[i] = element;
+                        *item = element;
                         length += 1;
                     }
                 }
@@ -245,6 +349,7 @@ where
     N: NumTraits + Send + Sync + Copy,
     T: PointData<N> + Send + Sync + Debug,
 {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             array: [None; S],
@@ -258,12 +363,12 @@ where
     }
 
     pub fn is_empty(&self) -> bool {
-        !self.array.par_iter().any(|e| e.is_some())
+        !self.array.par_iter().any(std::option::Option::is_some)
     }
 
     pub fn insert(&mut self, element: T) -> Result<(), N> {
         if let Some(empty) = self.array.par_iter_mut().find_any(|e| e.is_none()) {
-            *empty = Some(element);
+            empty.replace(element);
             self.length += 1;
             return Ok(());
         };
@@ -340,7 +445,7 @@ where
         if let Some(dupe_element) = self
             .array
             .par_iter_mut()
-            .filter_map(|element| element.as_mut())
+            .filter_map(std::option::Option::as_mut)
             .find_any(|element| element.get_point() == pt)
         {
             *dupe_element = element;
@@ -356,13 +461,15 @@ where
             .par_iter()
             .find_any(|element| element.map(|e| e.get_point() == point).unwrap_or(false))
         {
-            return found.to_owned();
+            return *found;
         }
 
         None
     }
 }
 
+// TODO: A serialization implementation which serializes just the container, and a deserializer
+// which deserializes from that
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Octree<N: Scalar, T: Copy, const S: usize> {
     aabb: Aabb<N>,
@@ -374,15 +481,6 @@ pub struct Octree<N: Scalar, T: Copy, const S: usize> {
     paternity: Paternity,
     #[serde(skip)]
     lock: Arc<Weak<RwLock<Self>>>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct FakeOctree<N: Scalar, T, const S: usize> {
-    aabb: Aabb<N>,
-    id: usize,
-    elements: Arc<RwLock<FakeElementArray<N, T, S>>>,
-    phantom_n: PhantomData<N>,
-    phantom_t: PhantomData<T>,
 }
 
 impl<N, T, const S: usize> Octree<N, T, S>
@@ -409,7 +507,7 @@ where
         }));
 
         let weak = Arc::downgrade(&octree);
-        octree.write().lock = Arc::new(weak.clone());
+        octree.write().lock = Arc::new(weak);
 
         let octree_lock = octree.read();
         let container = octree_lock.container.clone();
@@ -450,7 +548,7 @@ where
 
         let (tx, rx) = crossbeam_channel::unbounded::<Arc<RwLock<Self>>>();
 
-        let parent = self.lock.upgrade().clone();
+        let parent = self.lock.upgrade();
         let container = self.container.clone();
 
         rayon::scope(move |s| {
@@ -623,7 +721,7 @@ where
             }
         }
 
-        if let None = self.elements.write().remove(point) {
+        if self.elements.write().remove(point).is_none() {
             if let Paternity::ProudParent = self.paternity {
                 self.children.par_iter_mut().for_each(|child| {
                     if let Some(child) = child {
@@ -709,7 +807,7 @@ where
                         .as_mut()
                         .map(|c| c.write().insert_elements(remaining.clone()))
                 })
-                .filter(|r| r.is_ok())
+                .filter(std::result::Result::is_ok)
                 .collect::<Result<Vec<_>, N>>()
                 .map(|_| ()),
             Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
@@ -763,7 +861,7 @@ where
                 .children
                 .par_iter_mut()
                 .filter_map(|child| child.as_mut().map(|c| c.write().insert(element)))
-                .filter(|r| r.is_ok())
+                .filter(std::result::Result::is_ok)
                 .collect::<Result<Vec<_>, N>>()
                 .map(|_| ()),
             Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
@@ -778,10 +876,8 @@ where
         match &self.paternity {
             Paternity::ChildFree => count,
             Paternity::ProudParent => {
-                for child in &self.children {
-                    if let Some(child) = child {
-                        count += child.read().count();
-                    }
+                for child in self.children.iter().flatten() {
+                    count += child.read().count();
                 }
                 count
             }
