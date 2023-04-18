@@ -207,7 +207,7 @@ where
                             if container.is_some() {
                                 return Err(serde::de::Error::duplicate_field("container"));
                             }
-                            container = Some(map.next_value()?)
+                            container = Some(map.next_value()?);
                         }
                     }
                 }
