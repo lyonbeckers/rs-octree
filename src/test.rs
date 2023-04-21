@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::Subscriber;
 use tracing_subscriber::EnvFilter;
 
-use crate::{error, Octree, OctreeProvider, OctreeVec, PointData};
+use crate::{error, Octree, OctreeVec, PointData};
 
 type Point = Vector3<i32>;
 type Aabb = aabb::Aabb<i32>;
@@ -65,28 +65,21 @@ fn from_iter() {
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
 
-    let oct_a = Octree::<i32, TileData, 32>::new(
+    let mut oct_a = Octree::<i32, TileData, 32>::new(
         Aabb::from_extents(Point::zeros(), Point::zeros()),
         None,
         container,
     );
 
     for pt in &pts {
-        oct_a.write().insert(*pt).unwrap();
+        oct_a.insert(*pt).unwrap();
     }
 
-    let oct_b = pts
-        .into_iter()
-        .collect::<OctreeProvider<i32, TileData, 32>>();
+    let oct_b = pts.into_iter().collect::<Octree<i32, TileData, 32>>();
 
     assert_eq!(
-        oct_a.read().clone().into_iter().collect::<Vec<TileData>>(),
-        oct_b
-            .get_octree()
-            .read()
-            .clone()
-            .into_iter()
-            .collect::<Vec<TileData>>()
+        oct_a.clone().into_iter().collect::<Vec<TileData>>(),
+        oct_b.into_iter().collect::<Vec<TileData>>()
     );
 }
 
@@ -96,10 +89,9 @@ fn test_float() {
 
     let aabb = FloatAabb::new(FloatPoint::new(1., 1., 1.), FloatPoint::new(4., 4., 4.));
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<f32, FloatTileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<f32, FloatTileData, 32>::new(aabb, None, container);
 
     octree
-        .write()
         .insert(FloatTileData::new(FloatPoint::new(
             1.2233,
             1.666_778,
@@ -108,12 +100,10 @@ fn test_float() {
         .ok();
 
     assert!(octree
-        .read()
         .query_point(FloatPoint::new(1.2233, 1.666_778, 1.999_888_8))
         .is_some());
 
     octree
-        .write()
         .insert(FloatTileData::new(FloatPoint::new(
             1.2233,
             1.666_778,
@@ -121,7 +111,7 @@ fn test_float() {
         )))
         .ok();
 
-    assert_eq!(octree.read().clone().into_iter().count(), 1);
+    assert_eq!(octree.clone().into_iter().count(), 1);
 }
 
 #[test]
@@ -131,12 +121,12 @@ fn even_subdivision() {
     let aabb = Aabb::new(Point::new(1, 1, 1), Point::new(4, 4, 4));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
-    assert_eq!(octree.read().count(), count);
+    assert_eq!(octree.count(), count);
 }
 
 #[test]
@@ -146,12 +136,12 @@ fn odd_subdivision() {
     let aabb = Aabb::new(Point::new(1, 1, 1), Point::new(5, 5, 5));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
-    assert_eq!(octree.read().count(), count);
+    assert_eq!(octree.count(), count);
 }
 
 #[test]
@@ -161,12 +151,12 @@ fn tiny_test() {
     let aabb = Aabb::from_extents(Point::new(2, -1, 2), Point::new(3, 0, 3));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
-    assert_eq!(octree.read().count(), count);
+    assert_eq!(octree.count(), count);
 }
 
 #[test]
@@ -176,12 +166,12 @@ fn large_test() {
     let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(9, 9, 9));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
-    assert_eq!(octree.read().count(), count);
+    assert_eq!(octree.count(), count);
 }
 
 #[test]
@@ -191,12 +181,12 @@ fn large_test_small_max() {
     let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(9, 9, 9));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 1>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 1>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
-    assert_eq!(octree.read().count(), count);
+    assert_eq!(octree.count(), count);
 }
 
 #[test]
@@ -239,65 +229,49 @@ fn overwrite_elements() {
     let aabb = Aabb::new(Point::new(0, 0, 0), Point::new(4, 4, 4));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
-    let tiles = octree.read().clone().into_iter().collect::<Vec<TileData>>();
+    let tiles = octree.clone().into_iter().collect::<Vec<TileData>>();
     let tiles = tiles
         .iter()
         .map(|tile| TileData::new(tile.point, 1))
         .collect::<Vec<TileData>>();
 
     assert_eq!(tiles.len(), count);
-    octree.write().insert_elements(tiles).ok();
+    octree.insert_elements(tiles).ok();
 
     assert_eq!(
         octree
-            .read()
             .query_range(Aabb::from_extents(Point::zeros(), Point::zeros()))
             .len(),
         1
     );
-    assert_eq!(octree.read().count(), count);
+    assert_eq!(octree.count(), count);
     octree
-        .read()
         .clone()
         .into_iter()
         .for_each(|td| assert_eq!(td.tile, 1));
 
-    octree.write().remove_item(Point::new(0, 1, 0));
-    octree.write().remove_item(Point::new(-1, -1, -1));
+    octree.remove_item(Point::new(0, 1, 0));
+    octree.remove_item(Point::new(-1, -1, -1));
 
-    assert!(octree.read().query_point(Point::new(0, 1, 0)).is_none());
-    assert!(octree.read().query_point(Point::new(-1, -1, -1)).is_none());
+    assert!(octree.query_point(Point::new(0, 1, 0)).is_none());
+    assert!(octree.query_point(Point::new(-1, -1, -1)).is_none());
 
     octree
-        .write()
         .insert_elements(vec![
             TileData::new(Point::new(0, 1, 0), 0),
             TileData::new(Point::new(-1, -1, -1), 0),
         ])
         .ok();
-    assert_eq!(
-        octree
-            .read()
-            .query_point(Point::new(-1, -1, -1))
-            .unwrap()
-            .tile,
-        0
-    );
-    assert_eq!(
-        octree.read().query_point(Point::new(0, 1, 0)).unwrap().tile,
-        0
-    );
+    assert_eq!(octree.query_point(Point::new(-1, -1, -1)).unwrap().tile, 0);
+    assert_eq!(octree.query_point(Point::new(0, 1, 0)).unwrap().tile, 0);
 
-    assert_eq!(octree.read().count(), count);
-    assert_eq!(
-        octree.read().query_point(Point::new(1, 1, 1)).unwrap().tile,
-        1
-    );
+    assert_eq!(octree.count(), count);
+    assert_eq!(octree.query_point(Point::new(1, 1, 1)).unwrap().tile, 1);
 }
 
 #[test]
@@ -307,16 +281,13 @@ fn overwrite_element() {
     let aabb = Aabb::new(Point::new(0, 0, 0), Point::new(4, 4, 4));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
-    assert!(octree
-        .write()
-        .insert(TileData::new(Point::zeros(), 0))
-        .is_ok());
-    assert_eq!(octree.read().clone().into_iter().count(), count);
+    assert!(octree.insert(TileData::new(Point::zeros(), 0)).is_ok());
+    assert_eq!(octree.clone().into_iter().count(), count);
 }
 
 #[test]
@@ -326,11 +297,11 @@ fn overwrite_all() {
     let aabb = Aabb::new(Point::new(0, 0, 0), Point::new(9, 9, 9));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 }
 
 #[test]
@@ -340,14 +311,14 @@ fn query_point() {
     let aabb = Aabb::new(Point::new(0, 0, 0), Point::new(4, 4, 4));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
-    assert!(octree.read().get_aabb().contains_point(Point::new(0, 1, 0)));
-    assert!(octree.read().query_point(Point::new(0, 1, 0)).is_some());
-    assert!(octree.read().query_point(Point::new(0, 3, 0)).is_none());
+    assert!(octree.get_aabb().contains_point(Point::new(0, 1, 0)));
+    assert!(octree.query_point(Point::new(0, 1, 0)).is_some());
+    assert!(octree.query_point(Point::new(0, 3, 0)).is_none());
 }
 
 #[test]
@@ -357,17 +328,15 @@ fn remove_range_tiny_max() {
     let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 1>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 1>::new(aabb, None, container);
 
-    fill_octree(aabb, &octree, &mut 0).unwrap();
+    fill_octree(aabb, &mut octree, &mut 0).unwrap();
 
-    let before = octree.read().clone().into_iter().count();
+    let before = octree.clone().into_iter().count();
 
-    octree
-        .write()
-        .remove_range(Aabb::from_extents(Point::new(0, 0, 0), Point::new(0, 0, 0)));
+    octree.remove_range(Aabb::from_extents(Point::new(0, 0, 0), Point::new(0, 0, 0)));
 
-    assert_eq!(octree.read().clone().into_iter().count(), before - 1);
+    assert_eq!(octree.clone().into_iter().count(), before - 1);
 }
 
 #[test]
@@ -376,18 +345,17 @@ fn query_range_tiny_max() {
     let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 1>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 1>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
     assert_eq!(
         octree
-            .read()
             .query_range(Aabb::from_extents(Point::zeros(), Point::zeros()))
             .len(),
         1
     );
-    assert_eq!(octree.read().clone().into_iter().count(), count);
+    assert_eq!(octree.clone().into_iter().count(), count);
 }
 
 #[test]
@@ -397,12 +365,12 @@ fn iter_count_tiny_max() {
     let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 1>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 1>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
-    assert_eq!(count, octree.read().clone().into_iter().count());
+    assert_eq!(count, octree.clone().into_iter().count());
 }
 
 #[test]
@@ -413,9 +381,9 @@ fn contains_point_tiny_max() {
     let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 1>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 1>::new(aabb, None, container);
 
-    fill_octree(aabb, &octree, &mut 0).unwrap();
+    fill_octree(aabb, &mut octree, &mut 0).unwrap();
 
     assert!(aabb.contains_point(Point::new(0, 0, 0)));
     assert!(aabb.contains_point(Point::new(1, 0, 0)));
@@ -429,17 +397,17 @@ fn remove_element() {
     let aabb = Aabb::new(Point::new(0, 0, 0), Point::new(7, 7, 7));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
-    fill_octree(aabb, &octree, &mut 0).unwrap();
+    fill_octree(aabb, &mut octree, &mut 0).unwrap();
 
     let range = Aabb::from_extents(Point::new(0, 0, 0), Point::new(0, 0, 0));
 
-    assert!(octree.read().query_point(Point::new(0, 0, 0)).is_some());
+    assert!(octree.query_point(Point::new(0, 0, 0)).is_some());
     {
-        octree.write().remove_range(range);
+        octree.remove_range(range);
     }
-    assert!(octree.read().query_point(Point::new(0, 0, 0)).is_none());
+    assert!(octree.query_point(Point::new(0, 0, 0)).is_none());
 }
 
 #[test]
@@ -449,63 +417,63 @@ fn remove_all() {
     let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(9, 9, 9));
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
     let mut count = 0;
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
     assert_eq!(
-        octree.read().clone().into_iter().count(),
+        octree.clone().into_iter().count(),
         (aabb.dimensions.x * aabb.dimensions.y * aabb.dimensions.z) as usize
     );
 
     println!("removing...");
-    octree.write().remove_range(aabb);
+    octree.remove_range(aabb);
 
     println!("filling...");
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
     assert_eq!(
-        octree.read().clone().into_iter().count(),
+        octree.clone().into_iter().count(),
         (aabb.dimensions.x * aabb.dimensions.y * aabb.dimensions.z) as usize
     );
 
     println!("removing...");
-    octree.write().remove_range(aabb);
+    octree.remove_range(aabb);
 
     println!("filling...");
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
     assert_eq!(
-        octree.read().clone().into_iter().count(),
+        octree.clone().into_iter().count(),
         (aabb.dimensions.x * aabb.dimensions.y * aabb.dimensions.z) as usize
     );
 
     println!("removing...");
-    octree.write().remove_range(aabb);
+    octree.remove_range(aabb);
 
     println!("filling...");
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
     assert_eq!(
-        octree.read().clone().into_iter().count(),
+        octree.clone().into_iter().count(),
         (aabb.dimensions.x * aabb.dimensions.y * aabb.dimensions.z) as usize
     );
 
     println!("removing...");
-    octree.write().remove_range(aabb);
+    octree.remove_range(aabb);
 
     println!("filling...");
-    fill_octree(aabb, &octree, &mut count).unwrap();
+    fill_octree(aabb, &mut octree, &mut count).unwrap();
 
     assert_eq!(
-        octree.read().clone().into_iter().count(),
+        octree.clone().into_iter().count(),
         (aabb.dimensions.x * aabb.dimensions.y * aabb.dimensions.z) as usize
     );
 
     println!("removing...");
-    octree.write().remove_range(aabb);
+    octree.remove_range(aabb);
 
-    assert!(octree.read().clone().into_iter().count() == 0);
+    assert!(octree.clone().into_iter().count() == 0);
 }
 
 #[test]
@@ -514,34 +482,28 @@ fn serialize_deserialize() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let octree = Octree::<i32, TileData, 32>::new(
+    let mut octree = Octree::<i32, TileData, 32>::new(
         Aabb::from_extents(Point::new(-5, -5, -5), Point::new(5, 5, 5)),
         None,
         container,
     );
 
     octree
-        .write()
         .insert(TileData::new(Point::new(1, 0, 0), 0))
         .unwrap();
     octree
-        .write()
         .insert(TileData::new(Point::new(0, 1, 0), 0))
         .unwrap();
     octree
-        .write()
         .insert(TileData::new(Point::new(0, 0, 1), 0))
         .unwrap();
     octree
-        .write()
         .insert(TileData::new(Point::new(-1, 0, 0), 0))
         .unwrap();
     octree
-        .write()
         .insert(TileData::new(Point::new(0, -1, 0), 0))
         .unwrap();
     octree
-        .write()
         .insert(TileData::new(Point::new(0, 0, -1), 0))
         .unwrap();
 
@@ -562,7 +524,6 @@ fn serialize_deserialize() {
 
     assert!(
         octree_clone
-            .read()
             .clone()
             .into_iter()
             .collect::<HashSet<TileData>>()
@@ -574,7 +535,7 @@ fn serialize_deserialize() {
 
 fn fill_octree<const S: usize>(
     aabb: Aabb,
-    octree: &Arc<RwLock<Octree<i32, TileData, S>>>,
+    octree: &mut Octree<i32, TileData, S>,
     count: &mut usize,
 ) -> error::Result<(), i32> {
     let min = aabb.get_min();
@@ -592,5 +553,5 @@ fn fill_octree<const S: usize>(
         }
     }
 
-    octree.write().insert_elements(values)
+    octree.insert_elements(values)
 }
