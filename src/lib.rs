@@ -104,11 +104,7 @@ where
             container: Vec::with_capacity(items.len() / S),
         }));
 
-        let mut octree = Octree::new(
-            Aabb::from_extents(smallest, largest),
-            None,
-            container.clone(),
-        );
+        let mut octree = Octree::new(Aabb::from_extents(smallest, largest), None, container);
 
         octree.insert_elements(items).ok();
 
@@ -116,6 +112,7 @@ where
     }
 }
 
+#[derive(Default)]
 pub struct OctreeVec<N: Scalar, T: Copy, const S: usize> {
     container: Vec<Octree<N, T, S>>,
 }
@@ -139,6 +136,7 @@ where
         }
     }
 
+    #[must_use]
     pub fn position(&self, other: &Octree<N, T, S>) -> Option<usize> {
         self.container
             .iter()
@@ -149,8 +147,14 @@ where
         self.container.insert(index, octree);
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.container.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.container.is_empty()
     }
 
     pub fn iter(&self) -> Iter<Octree<N, T, S>> {
@@ -284,7 +288,7 @@ where
         }))
     }
 
-    pub fn remove(&mut self, point: Vector3<N>) -> Option<T>
+    pub fn remove(&mut self, point: &Vector3<N>) -> Option<T>
     where
         N: Send + Sync,
         T: PointData<N> + Send + Sync,
@@ -292,7 +296,7 @@ where
         if let Some(element) = self
             .array
             .par_iter_mut()
-            .find_any(|element| element.map(|e| e.get_point() == point).unwrap_or(false))
+            .find_any(|element| element.map(|e| e.get_point() == *point).unwrap_or(false))
         {
             self.length -= 1;
             return element.take();
@@ -381,7 +385,7 @@ where
         false
     }
 
-    pub fn find_at_point(&self, point: Vector3<N>) -> Option<T>
+    pub fn find_at_point(&self, point: &Vector3<N>) -> Option<T>
     where
         N: Send + Sync,
         T: PointData<N> + Send + Sync,
@@ -389,7 +393,7 @@ where
         if let Some(found) = self
             .array
             .par_iter()
-            .find_any(|element| element.map(|e| e.get_point() == point).unwrap_or(false))
+            .find_any(|element| element.map(|e| e.get_point() == *point).unwrap_or(false))
         {
             return *found;
         }
@@ -450,7 +454,7 @@ where
                     .collect(),
                 parent: octree.parent.clone().map(|p| p.as_ref().id),
                 paternity: octree.paternity,
-            })?
+            })?;
         }
         seq.end()
     }
@@ -520,7 +524,7 @@ where
                             .find(|o| o.get_inner().read().id == parent_id)
                             .cloned();
                     }
-                    for child_id in de.children.iter() {
+                    for child_id in &de.children {
                         let octree = &mut octree.clone();
                         octree
                             .add_child(
@@ -535,8 +539,8 @@ where
                                     })?,
                             )
                             .map_err(|err| {
-                                serde::de::Error::custom(format!("Failed to add child: {}", err))
-                            })?
+                                serde::de::Error::custom(format!("Failed to add child: {err}"))
+                            })?;
                     }
                 }
 
@@ -623,6 +627,7 @@ where
         ret
     }
 
+    #[must_use]
     pub fn get_aabb(&self) -> Aabb<N>
     where
         N: Copy,
@@ -839,7 +844,7 @@ where
     }
 
     /// Removes the element at the point
-    pub fn remove_item(&self, point: Vector3<N>)
+    pub fn remove_item(&self, point: &Vector3<N>)
     where
         N: Sync + Send + NumTraits + Copy + Clone,
         T: PointData<N> + PartialEq + Debug + Sync + Send,
@@ -1024,6 +1029,7 @@ where
         }
     }
 
+    #[must_use]
     pub fn count(&self) -> usize {
         let mut count: usize = self.as_ref().elements.read().len();
 
@@ -1038,12 +1044,12 @@ where
         }
     }
 
-    pub fn query_point(&self, point: Vector3<N>) -> Option<T>
+    pub fn query_point(&self, point: &Vector3<N>) -> Option<T>
     where
         N: Sync + Send + NumTraits + Copy + Clone,
         T: PointData<N> + PartialEq + Debug + Sync + Send,
     {
-        if !self.as_ref().aabb.contains_point(point) {
+        if !self.as_ref().aabb.contains_point(*point) {
             return None;
         }
 

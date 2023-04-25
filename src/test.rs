@@ -100,7 +100,7 @@ fn test_float() {
         .ok();
 
     assert!(octree
-        .query_point(FloatPoint::new(1.2233, 1.666_778, 1.999_888_8))
+        .query_point(&FloatPoint::new(1.2233, 1.666_778, 1.999_888_8))
         .is_some());
 
     octree
@@ -255,11 +255,11 @@ fn overwrite_elements() {
         .into_iter()
         .for_each(|td| assert_eq!(td.tile, 1));
 
-    octree.remove_item(Point::new(0, 1, 0));
-    octree.remove_item(Point::new(-1, -1, -1));
+    octree.remove_item(&Point::new(0, 1, 0));
+    octree.remove_item(&Point::new(-1, -1, -1));
 
-    assert!(octree.query_point(Point::new(0, 1, 0)).is_none());
-    assert!(octree.query_point(Point::new(-1, -1, -1)).is_none());
+    assert!(octree.query_point(&Point::new(0, 1, 0)).is_none());
+    assert!(octree.query_point(&Point::new(-1, -1, -1)).is_none());
 
     octree
         .insert_elements(vec![
@@ -267,11 +267,11 @@ fn overwrite_elements() {
             TileData::new(Point::new(-1, -1, -1), 0),
         ])
         .ok();
-    assert_eq!(octree.query_point(Point::new(-1, -1, -1)).unwrap().tile, 0);
-    assert_eq!(octree.query_point(Point::new(0, 1, 0)).unwrap().tile, 0);
+    assert_eq!(octree.query_point(&Point::new(-1, -1, -1)).unwrap().tile, 0);
+    assert_eq!(octree.query_point(&Point::new(0, 1, 0)).unwrap().tile, 0);
 
     assert_eq!(octree.count(), count);
-    assert_eq!(octree.query_point(Point::new(1, 1, 1)).unwrap().tile, 1);
+    assert_eq!(octree.query_point(&Point::new(1, 1, 1)).unwrap().tile, 1);
 }
 
 #[test]
@@ -317,8 +317,8 @@ fn query_point() {
     fill_octree(aabb, &mut octree, &mut count).unwrap();
 
     assert!(octree.get_aabb().contains_point(Point::new(0, 1, 0)));
-    assert!(octree.query_point(Point::new(0, 1, 0)).is_some());
-    assert!(octree.query_point(Point::new(0, 3, 0)).is_none());
+    assert!(octree.query_point(&Point::new(0, 1, 0)).is_some());
+    assert!(octree.query_point(&Point::new(0, 3, 0)).is_none());
 }
 
 #[test]
@@ -403,11 +403,11 @@ fn remove_element() {
 
     let range = Aabb::from_extents(Point::new(0, 0, 0), Point::new(0, 0, 0));
 
-    assert!(octree.query_point(Point::new(0, 0, 0)).is_some());
+    assert!(octree.query_point(&Point::new(0, 0, 0)).is_some());
     {
         octree.remove_range(range);
     }
-    assert!(octree.query_point(Point::new(0, 0, 0)).is_none());
+    assert!(octree.query_point(&Point::new(0, 0, 0)).is_none());
 }
 
 #[test]
@@ -565,7 +565,7 @@ fn serialize_deserialize_deep() {
         .read()
         .children
         .iter()
-        .any(|x| x.is_some()));
+        .any(std::option::Option::is_some));
 
     // TODO: this is good to get a glance, but this should be recursive
     for (r_child, child) in round_trip
