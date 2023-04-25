@@ -116,99 +116,9 @@ where
     }
 }
 
-// #[derive(Serialize, Default)]
 pub struct OctreeVec<N: Scalar, T: Copy, const S: usize> {
     container: Vec<Octree<N, T, S>>,
 }
-
-// impl<'de, N, T, const S: usize> Deserialize<'de> for OctreeVec<N, T, S>
-// where
-//     N: Scalar + Default + Deserialize<'de>,
-//     T: Copy + Default + Deserialize<'de>,
-// {
-//     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-//     where
-//         D: Deserializer<'de>,
-//     {
-//         struct Container;
-//
-//         impl<'de> Deserialize<'de> for Container {
-//             fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-//             where
-//                 D: Deserializer<'de>,
-//             {
-//                 struct ContainerVisitor;
-//
-//                 impl<'de> Visitor<'de> for ContainerVisitor {
-//                     type Value = Container;
-//
-//                     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-//                         formatter.write_str("container")
-//                     }
-//
-//                     fn visit_str<E>(self, v: &str) -> std::result::Result<Self::Value, E>
-//                     where
-//                         E: serde::de::Error,
-//                     {
-//                         match v {
-//                             "container" => Ok(Container),
-//                             field => Err(serde::de::Error::unknown_field(field, &["container"])),
-//                         }
-//                     }
-//                 }
-//                 deserializer.deserialize_identifier(ContainerVisitor)
-//             }
-//         }
-//
-//         struct OctreeVecVisitor<N: Scalar + Default, T: Copy + Default, const S: usize> {
-//             phantom_n: PhantomData<N>,
-//             phantom_t: PhantomData<T>,
-//         }
-//
-//         impl<'de, N, T, const S: usize> Visitor<'de> for OctreeVecVisitor<N, T, S>
-//         where
-//             N: Scalar + Default + Deserialize<'de>,
-//             T: Copy + Default + Deserialize<'de>,
-//         {
-//             type Value = OctreeVec<N, T, S>;
-//
-//             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-//                 formatter.write_str("struct OctreeVec")
-//             }
-//
-//             fn visit_map<A>(self, mut map: A) -> std::result::Result<Self::Value, A::Error>
-//             where
-//                 A: serde::de::MapAccess<'de>,
-//             {
-//                 let mut container = None;
-//                 while let Some(key) = map.next_key::<Container>()? {
-//                     match key {
-//                         Container => {
-//                             if container.is_some() {
-//                                 return Err(serde::de::Error::duplicate_field("container"));
-//                             }
-//                             container = Some(map.next_value()?);
-//                         }
-//                     }
-//                 }
-//
-//                 let container =
-//                     container.ok_or_else(|| serde::de::Error::missing_field("container"))?;
-//
-//                 Ok(OctreeVec { container })
-//             }
-//         }
-//
-//         deserializer.deserialize_struct(
-//             "OctreeVec",
-//             &["container"],
-//             OctreeVecVisitor {
-//                 phantom_n: PhantomData,
-//                 phantom_t: PhantomData,
-//             },
-//         )
-//     }
-// }
 
 impl<N, T, const S: usize> OctreeVec<N, T, S>
 where
@@ -488,7 +398,7 @@ where
     }
 }
 
-pub struct OctreeInner<N: Scalar, T: Copy, const S: usize> {
+struct OctreeInner<N: Scalar, T: Copy, const S: usize> {
     aabb: Aabb<N>,
     id: usize,
     elements: Arc<RwLock<ElementArray<N, T, S>>>,
@@ -496,7 +406,7 @@ pub struct OctreeInner<N: Scalar, T: Copy, const S: usize> {
     parent: Option<Octree<N, T, S>>,
     container: Arc<RwLock<OctreeVec<N, T, S>>>,
     paternity: Paternity,
-    lock: Arc<Weak<RwLock<Self>>>,
+    lock: Weak<RwLock<Self>>,
 }
 
 // TODO: A serialization implementation which serializes just the container, and a deserializer
@@ -504,6 +414,16 @@ pub struct OctreeInner<N: Scalar, T: Copy, const S: usize> {
 #[derive(Clone)]
 pub struct Octree<N: Scalar, T: Copy, const S: usize> {
     inner: Arc<RwLock<OctreeInner<N, T, S>>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializeOctree<N: Scalar, T: Copy, const L: usize> {
+    aabb: Aabb<N>,
+    id: usize,
+    elements: Arc<RwLock<ElementArray<N, T, L>>>,
+    children: Vec<usize>,
+    parent: Option<usize>,
+    paternity: Paternity,
 }
 
 impl<N, T, const L: usize> Serialize for Octree<N, T, L>
@@ -515,16 +435,6 @@ where
     where
         S: serde::Serializer,
     {
-        #[derive(Serialize, Deserialize)]
-        struct SerializeOctree<N: Scalar, T: Copy, const L: usize> {
-            aabb: Aabb<N>,
-            id: usize,
-            elements: Arc<RwLock<ElementArray<N, T, L>>>,
-            children: Vec<usize>,
-            parent: Option<usize>,
-            paternity: Paternity,
-        }
-
         let mut seq = serializer.serialize_seq(Some(self.as_ref().container.read().len()))?;
         for octree in self.as_ref().container.read().iter() {
             let octree = octree.as_ref();
@@ -571,11 +481,72 @@ where
                 formatter.write_str("struct Octree")
             }
 
-            fn visit_seq<A>(self, seq: A) -> std::result::Result<Self::Value, A::Error>
+            fn visit_seq<A>(self, mut seq: A) -> std::result::Result<Self::Value, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
             {
-                todo!()
+                let mut octrees = Vec::new();
+                let mut deserialized = Vec::new();
+                let container = Arc::new(RwLock::new(OctreeVec::new()));
+                while let Ok(Some(octree)) = seq.next_element::<SerializeOctree<N, T, S>>() {
+                    let inner = Arc::new(RwLock::new(OctreeInner {
+                        id: octree.id,
+                        aabb: octree.aabb.clone(),
+                        parent: None,
+                        paternity: octree.paternity,
+                        elements: octree.elements.clone(),
+                        container: container.clone(),
+                        children: [None, None, None, None, None, None, None, None],
+                        lock: Weak::new(),
+                    }));
+
+                    let downgrade = Arc::downgrade(&inner);
+                    inner.write().lock = downgrade;
+
+                    octrees.push(Octree { inner });
+
+                    deserialized.push(octree);
+                }
+
+                container.write().container.extend(octrees.into_iter());
+
+                // Set references
+                for (octree, de) in container.read().container.iter().zip(deserialized.iter()) {
+                    if let Some(parent_id) = de.parent {
+                        octree.get_inner().clone().write().parent = container
+                            .read()
+                            .container
+                            .iter()
+                            .find(|o| o.get_inner().read().id == parent_id)
+                            .cloned();
+
+                        for child_id in de.children.iter() {
+                            let octree = &mut octree.clone();
+                            octree
+                                .add_child(
+                                    container
+                                        .read()
+                                        .container
+                                        .iter()
+                                        .find(|o| o.get_inner().read().id == *child_id)
+                                        .cloned()
+                                        .ok_or_else(|| {
+                                            serde::de::Error::custom("Child couldn't be found")
+                                        })?,
+                                )
+                                .map_err(|err| {
+                                    serde::de::Error::custom(format!(
+                                        "Failed to add child: {}",
+                                        err
+                                    ))
+                                })?
+                        }
+                    }
+                }
+
+                let container_read = container.read();
+
+                Ok(container_read.container[0].clone())
             }
         }
 
@@ -595,26 +566,29 @@ where
         self.inner.clone()
     }
 
-    pub fn as_ref(&self) -> RwLockReadGuard<OctreeInner<N, T, S>> {
+    fn as_ref(&self) -> RwLockReadGuard<OctreeInner<N, T, S>> {
         self.inner.read()
     }
 
-    pub fn as_mut(&self) -> RwLockWriteGuard<OctreeInner<N, T, S>> {
+    fn as_mut(&self) -> RwLockWriteGuard<OctreeInner<N, T, S>> {
         self.inner.write()
     }
 }
 
 impl<N, T, const S: usize> Octree<N, T, S>
 where
-    N: Sync + Send + NumTraits + Copy + Clone,
-    T: PointData<N> + PartialEq + Debug + Sync + Send,
+    N: Scalar,
+    T: Copy,
 {
     pub fn new(
         aabb: Aabb<N>,
         parent: Option<Self>,
         container: Arc<RwLock<OctreeVec<N, T, S>>>,
     ) -> Self
-where {
+    where
+        N: Sync + Send + NumTraits + Copy + Clone,
+        T: PointData<N> + PartialEq + Debug + Sync + Send,
+    {
         tracing::debug!(target: "creating octree", min = ?aabb.get_min(), max = ?aabb.get_max());
 
         let octree = Arc::new(RwLock::new(OctreeInner {
@@ -625,11 +599,11 @@ where {
             children: [None, None, None, None, None, None, None, None],
             container,
             paternity: Paternity::ChildFree,
-            lock: Arc::new(Weak::new()),
+            lock: Weak::new(),
         }));
 
         let weak = Arc::downgrade(&octree);
-        octree.write().lock = Arc::new(weak);
+        octree.write().lock = weak;
 
         let octree_lock = octree.read();
         let container = octree_lock.container.clone();
@@ -648,7 +622,10 @@ where {
         ret
     }
 
-    pub fn get_aabb(&self) -> Aabb<N> {
+    pub fn get_aabb(&self) -> Aabb<N>
+    where
+        N: Copy,
+    {
         self.as_ref().aabb
     }
 
@@ -660,7 +637,11 @@ where {
     /// will return an error if the subdivision does not have the correct dimensions, or if there
     /// are more than 8 children
     #[allow(clippy::too_many_lines)]
-    fn subdivide(&mut self) -> Result<(), N> {
+    fn subdivide(&mut self) -> Result<(), N>
+    where
+        N: Sync + Send + NumTraits + Copy + Clone,
+        T: PointData<N> + PartialEq + Debug + Sync + Send,
+    {
         let zero: N = NumCast::from(0).unwrap();
         let one: N = NumCast::from(1).unwrap();
         let two: N = NumCast::from(2).unwrap();
@@ -857,7 +838,11 @@ where {
     }
 
     /// Removes the element at the point
-    pub fn remove_item(&self, point: Vector3<N>) {
+    pub fn remove_item(&self, point: Vector3<N>)
+    where
+        N: Sync + Send + NumTraits + Copy + Clone,
+        T: PointData<N> + PartialEq + Debug + Sync + Send,
+    {
         if let Paternity::ChildFree = self.as_ref().paternity {
             if self.as_ref().elements.read().is_empty() {
                 return;
@@ -876,7 +861,11 @@ where {
     }
 
     /// Removes all elements which fit inside range, silently avoiding positions that do not fit inside the octree
-    pub fn remove_range(&self, range: Aabb<N>) {
+    pub fn remove_range(&self, range: Aabb<N>)
+    where
+        N: Sync + Send + NumTraits + Copy + Clone,
+        T: PointData<N> + PartialEq + Debug + Sync + Send,
+    {
         if let Paternity::ChildFree = self.as_ref().paternity {
             if self.as_ref().elements.read().is_empty() {
                 return;
@@ -894,7 +883,11 @@ where {
         }
     }
 
-    pub fn insert_elements(&mut self, elements: Vec<T>) -> Result<(), N> {
+    pub fn insert_elements(&mut self, elements: Vec<T>) -> Result<(), N>
+    where
+        N: Sync + Send + NumTraits + Copy + Clone,
+        T: PointData<N> + PartialEq + Debug + Sync + Send,
+    {
         let mut elements = elements
             .into_par_iter()
             .filter(|element| self.as_ref().aabb.contains_point(element.get_point()))
@@ -962,7 +955,11 @@ where {
         }
     }
 
-    fn add_child(&mut self, child: Self) -> Result<(), N> {
+    fn add_child(&mut self, child: Self) -> Result<(), N>
+    where
+        N: Scalar,
+        T: Copy,
+    {
         match self
             .as_mut()
             .children
@@ -979,7 +976,11 @@ where {
         }
     }
 
-    pub fn insert(&mut self, element: T) -> Result<(), N> {
+    pub fn insert(&mut self, element: T) -> Result<(), N>
+    where
+        N: Sync + Send + NumTraits + Copy + Clone,
+        T: PointData<N> + PartialEq + Debug + Sync + Send,
+    {
         let pt = element.get_point();
 
         if !self.as_ref().aabb.contains_point(pt) {
@@ -1036,7 +1037,11 @@ where {
         }
     }
 
-    pub fn query_point(&self, point: Vector3<N>) -> Option<T> {
+    pub fn query_point(&self, point: Vector3<N>) -> Option<T>
+    where
+        N: Sync + Send + NumTraits + Copy + Clone,
+        T: PointData<N> + PartialEq + Debug + Sync + Send,
+    {
         if !self.as_ref().aabb.contains_point(point) {
             return None;
         }
@@ -1055,7 +1060,11 @@ where {
             .find_map_any(|child| child.as_ref().and_then(|c| c.query_point(point)))
     }
 
-    pub fn query_range(&self, range: Aabb<N>) -> Vec<T> {
+    pub fn query_range(&self, range: Aabb<N>) -> Vec<T>
+    where
+        N: Sync + Send + NumTraits + Copy + Clone,
+        T: PointData<N> + PartialEq + Debug + Sync + Send,
+    {
         let volume = range.dimensions.x * range.dimensions.y * range.dimensions.z;
         let mut elements_in_range: Vec<T> = Vec::with_capacity(NumCast::from(volume).unwrap());
 

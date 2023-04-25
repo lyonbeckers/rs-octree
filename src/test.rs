@@ -477,7 +477,6 @@ fn remove_all() {
 }
 
 #[test]
-#[ignore = "reason"]
 fn serialize_deserialize() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
