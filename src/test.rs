@@ -506,14 +506,9 @@ fn serialize_deserialize() {
         .insert(TileData::new(Point::new(0, 0, -1), 0))
         .unwrap();
 
-    let octree_clone = octree.clone();
-
     let pretty = ron::ser::PrettyConfig::default();
     let ser_ron = match ron::ser::to_string_pretty(&octree, pretty) {
-        Ok(r) => {
-            println!("{r:?}");
-            r
-        }
+        Ok(r) => r,
         Err(err) => {
             panic!("{:?}", err);
         }
@@ -522,7 +517,7 @@ fn serialize_deserialize() {
     let round_trip: Octree<i32, TileData, 32> = ron::de::from_str(&ser_ron).unwrap();
 
     assert!(
-        octree_clone
+        octree
             .clone()
             .into_iter()
             .collect::<HashSet<TileData>>()
@@ -530,6 +525,83 @@ fn serialize_deserialize() {
             .count()
             == 0
     );
+}
+
+#[test]
+fn serialize_deserialize_deep() {
+    let container = Arc::new(RwLock::new(OctreeVec::new()));
+    let mut octree = Octree::<i32, TileData, 8>::new(
+        Aabb::from_extents(Point::new(-5, -5, -5), Point::new(5, 5, 5)),
+        None,
+        container,
+    );
+
+    let mut count = 0;
+    fill_octree(octree.get_aabb(), &mut octree, &mut count).unwrap();
+
+    let pretty = ron::ser::PrettyConfig::default();
+    let ser_ron = match ron::ser::to_string_pretty(&octree, pretty) {
+        Ok(r) => r,
+        Err(err) => {
+            panic!("{:?}", err);
+        }
+    };
+
+    let round_trip: Octree<i32, TileData, 32> = ron::de::from_str(&ser_ron).unwrap();
+
+    dbg!(&round_trip.get_aabb());
+    dbg!(&round_trip.get_inner().read().parent.is_some());
+    dbg!(&round_trip
+        .get_inner()
+        .read()
+        .children
+        .iter()
+        .flatten()
+        .map(|child| child.get_inner().read().id)
+        .collect::<Vec<usize>>());
+
+    assert!(round_trip
+        .get_inner()
+        .read()
+        .children
+        .iter()
+        .any(|x| x.is_some()));
+
+    // TODO: this is good to get a glance, but this should be recursive
+    for (r_child, child) in round_trip
+        .get_inner()
+        .read()
+        .children
+        .iter()
+        .flatten()
+        .zip(octree.get_inner().read().children.iter().flatten())
+    {
+        assert_eq!(r_child.get_inner().read().id, child.get_inner().read().id);
+        assert_eq!(
+            r_child
+                .get_inner()
+                .read()
+                .parent
+                .clone()
+                .unwrap()
+                .get_inner()
+                .read()
+                .id,
+            child
+                .get_inner()
+                .read()
+                .parent
+                .clone()
+                .unwrap()
+                .get_inner()
+                .read()
+                .id
+        );
+        assert_eq!(
+            r_child.get_inner().read().aabb,
+            child.get_inner().read().aabb
+        );
+    }
 }
 
 fn fill_octree<const S: usize>(

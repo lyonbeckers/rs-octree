@@ -519,34 +519,35 @@ where
                             .iter()
                             .find(|o| o.get_inner().read().id == parent_id)
                             .cloned();
-
-                        for child_id in de.children.iter() {
-                            let octree = &mut octree.clone();
-                            octree
-                                .add_child(
-                                    container
-                                        .read()
-                                        .container
-                                        .iter()
-                                        .find(|o| o.get_inner().read().id == *child_id)
-                                        .cloned()
-                                        .ok_or_else(|| {
-                                            serde::de::Error::custom("Child couldn't be found")
-                                        })?,
-                                )
-                                .map_err(|err| {
-                                    serde::de::Error::custom(format!(
-                                        "Failed to add child: {}",
-                                        err
-                                    ))
-                                })?
-                        }
+                    }
+                    for child_id in de.children.iter() {
+                        let octree = &mut octree.clone();
+                        octree
+                            .add_child(
+                                container
+                                    .read()
+                                    .container
+                                    .iter()
+                                    .find(|o| o.get_inner().read().id == *child_id)
+                                    .cloned()
+                                    .ok_or_else(|| {
+                                        serde::de::Error::custom("Child couldn't be found")
+                                    })?,
+                            )
+                            .map_err(|err| {
+                                serde::de::Error::custom(format!("Failed to add child: {}", err))
+                            })?
                     }
                 }
 
                 let container_read = container.read();
 
-                Ok(container_read.container[0].clone())
+                container_read
+                    .container
+                    .iter()
+                    .find(|x| x.get_inner().read().parent.is_none())
+                    .cloned()
+                    .ok_or_else(|| serde::de::Error::custom("Couldn't find the root octree"))
             }
         }
 
