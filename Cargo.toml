@@ -2,7 +2,7 @@
 name = "octree"
 version = "0.1.0"
 authors = ["Lyon Beckers <lyonbeckers@gmail.com>"]
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -27,3 +27,6 @@ tracing = "0.1"
 [dev-dependencies]
 tracing-subscriber = "0.2"
 ron = "0.6"
+
+[profile.bench]
+debug = true

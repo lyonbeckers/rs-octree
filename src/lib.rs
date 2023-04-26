@@ -1,11 +1,8 @@
-#![cfg_attr(feature = "nightly", feature(test))]
 #![deny(clippy::pedantic)]
 #![deny(clippy::perf)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::missing_errors_doc)]
 
-#[cfg(feature = "nightly")]
-mod bench;
 pub mod error;
 #[cfg(test)]
 mod test;
@@ -273,22 +270,42 @@ where
     where
         T: Send + Sync,
     {
-        !self.array.par_iter().any(std::option::Option::is_some)
+        self.length == 0
     }
 
-    pub fn insert(&mut self, element: T) -> Result<(), N>
+    pub fn push(&mut self, element: T) -> Result<(), N>
     where
         T: Send + Sync,
     {
-        if let Some(empty) = self.array.par_iter_mut().find_any(|e| e.is_none()) {
-            empty.replace(element);
-            self.length += 1;
-            return Ok(());
-        };
+        if self.length > S - 1 {
+            return Err(Error::InsertionError(InsertionError {
+                error_type: InsertionErrorType::Overflow,
+            }));
+        }
 
-        Err(Error::InsertionError(InsertionError {
-            error_type: InsertionErrorType::Overflow,
-        }))
+        self.array[self.length].replace(element);
+        self.length += 1;
+
+        Ok(())
+    }
+
+    pub fn push_slice(&mut self, elements: Vec<T>) -> Result<(), N> {
+        if self.length > S - elements.len() {
+            return Err(Error::InsertionError(InsertionError {
+                error_type: InsertionErrorType::Overflow,
+            }));
+        }
+
+        self.array[self.length..self.length + elements.len()].copy_from_slice(
+            elements
+                .iter()
+                .map(|e| Some(*e))
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
+        self.length += elements.len();
+
+        Ok(())
     }
 
     pub fn remove(&mut self, point: &Vector3<N>) -> Option<T>
@@ -296,13 +313,22 @@ where
         N: Send + Sync,
         T: PointData<N> + Send + Sync,
     {
-        if let Some(element) = self
+        let mut ret = None;
+        let mut position = 0;
+        if let Some((index, element)) = self
             .array
             .par_iter_mut()
-            .find_any(|element| element.map(|e| e.get_point() == *point).unwrap_or(false))
+            .enumerate()
+            .find_any(|(_, element)| element.map(|e| e.get_point() == *point).unwrap_or(false))
         {
+            position = index;
+            ret = element.take();
+        }
+
+        if ret.is_some() {
             self.length -= 1;
-            return element.take();
+            self.array[position..].rotate_left(1);
+            return ret;
         }
         None
     }
@@ -328,28 +354,36 @@ where
         N: NumTraits + Copy + Send + Sync,
         T: PointData<N> + Send + Sync,
     {
-        self.length -= self
+        let removals = self
             .array
-            .par_iter_mut()
-            .filter(|element| {
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, element)| {
                 element
                     .map(|e| range.contains_point(e.get_point()))
                     .unwrap_or(false)
             })
-            .map(|element| {
+            .map(|(index, element)| {
                 _ = element.take();
+                index
             })
-            .count();
+            .collect::<Vec<_>>();
+
+        for position in removals {
+            self.length -= 1;
+            self.array[position..].rotate_left(1);
+        }
     }
 
     /// Drains duplicates from the Vec<T>, replacing existing elements at their respective points
+    #[inline]
     pub fn drain_duplicates(&mut self, elements: &mut Vec<T>)
     where
         N: Send + Sync,
         T: PointData<N> + Send + Sync,
     {
         //overwrite duplicates
-        self.array.par_iter_mut().for_each(|element| {
+        self.array[0..self.length].iter_mut().for_each(|element| {
             if let Some(dupe) = elements.iter().find(|inc| {
                 element
                     .map(|e| e.get_point() == inc.get_point())
@@ -361,7 +395,7 @@ where
 
         //cull out duplicates
         elements.retain(|inc| {
-            !self.array.par_iter().any(|orig| {
+            !self.array[0..self.length].iter().any(|orig| {
                 orig.map(|e| e.get_point() == inc.get_point())
                     .unwrap_or(false)
             })
@@ -892,15 +926,12 @@ where
         }
     }
 
-    pub fn insert_elements(&mut self, elements: Vec<T>) -> Result<(), N>
+    pub fn insert_elements(&mut self, mut elements: Vec<T>) -> Result<(), N>
     where
         N: Sync + Send + NumTraits + Copy + Clone,
         T: PointData<N> + PartialEq + Debug + Sync + Send,
     {
-        let mut elements = elements
-            .into_par_iter()
-            .filter(|element| self.as_ref().aabb.contains_point(element.get_point()))
-            .collect::<Vec<T>>();
+        elements.retain(|element| self.as_ref().aabb.contains_point(element.get_point()));
 
         if elements.is_empty() {
             return Err(Error::InsertionError(InsertionError {
@@ -922,11 +953,7 @@ where
         let paternity = self.as_ref().paternity;
         match self.paternity() {
             Paternity::ChildFree | Paternity::ProudParent if S > len => {
-                // TODO: an insert_many method in ElementArray for parallel insertion
-                elements
-                    .iter()
-                    .map(|e| elements_clone.clone().write().insert(*e))
-                    .collect::<Result<Vec<_>, _>>()?;
+                elements_clone.clone().write().push_slice(elements)?;
 
                 let len = self.as_ref().elements.read().len();
                 if paternity == Paternity::ChildFree && len == S {
@@ -956,8 +983,7 @@ where
                 .par_iter_mut()
                 .filter_map(|child| child.as_mut().map(|c| c.insert_elements(remaining.clone())))
                 .filter(std::result::Result::is_ok)
-                .collect::<Result<Vec<_>, N>>()
-                .map(|_| ()),
+                .collect::<Result<(), N>>(),
             Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
                 error_type: InsertionErrorType::Empty,
             })),
@@ -1008,7 +1034,7 @@ where
         //do first match because you still need to insert into children after subdividing, not either/or
         match &self.paternity() {
             Paternity::ChildFree | Paternity::ProudParent if S > len => {
-                self.as_ref().elements.write().insert(element)?;
+                self.as_ref().elements.write().push(element)?;
 
                 return Ok(());
             }
@@ -1024,8 +1050,7 @@ where
                 .par_iter_mut()
                 .filter_map(|child| child.as_mut().map(|c| c.insert(element)))
                 .filter(std::result::Result::is_ok)
-                .collect::<Result<Vec<_>, N>>()
-                .map(|_| ()),
+                .collect::<Result<(), N>>(),
             Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
                 error_type: InsertionErrorType::Empty,
             })),

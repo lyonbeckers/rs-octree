@@ -332,11 +332,52 @@ fn remove_range_tiny_max() {
 
     fill_octree(aabb, &mut octree, &mut 0).unwrap();
 
-    let before = octree.clone().into_iter().count();
+    let before = octree.count();
 
     octree.remove_range(Aabb::from_extents(Point::new(0, 0, 0), Point::new(0, 0, 0)));
 
-    assert_eq!(octree.clone().into_iter().count(), before - 1);
+    assert_eq!(octree.count(), before - 1);
+}
+
+#[test]
+fn remove_range() {
+    let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
+    let container = Arc::new(RwLock::new(OctreeVec::new()));
+    let mut octree = Octree::<i32, TileData, 8>::new(aabb, None, container);
+
+    fill_octree(aabb, &mut octree, &mut 0).unwrap();
+    let before = octree.count();
+    let aabb_remove = Aabb::from_extents(Point::new(1, 1, 1), Point::new(5, 5, 5));
+    octree.remove_range(aabb_remove);
+
+    let query = octree.query_range(aabb_remove);
+
+    assert_eq!(query.len(), 0);
+    assert_eq!(octree.count(), before - 125);
+}
+
+#[test]
+fn remove_range_disorder() {
+    let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
+    let container = Arc::new(RwLock::new(OctreeVec::new()));
+    let mut octree = Octree::<i32, TileData, 8>::new(aabb, None, container);
+
+    octree
+        .insert(TileData::new(Vector3::new(7, 7, 7), 0))
+        .unwrap();
+    octree
+        .insert(TileData::new(Vector3::new(0, 0, 0), 0))
+        .unwrap();
+    // This removes the first element
+    octree.remove_range(Aabb::from_extents(Point::new(7, 7, 7), Point::new(7, 7, 7)));
+    assert!(octree.query_point(&Point::new(7, 7, 7)).is_none());
+
+    // Insert a new element, if remove range handles indices properly, it shouldn't overwrite the
+    // second element
+    octree
+        .insert(TileData::new(Vector3::new(4, 4, 4), 0))
+        .unwrap();
+    assert!(octree.query_point(&Point::new(0, 0, 0)).is_some());
 }
 
 #[test]

@@ -1,3 +1,4 @@
+#![feature(test)]
 extern crate test;
 
 use std::sync::Arc;
@@ -7,7 +8,7 @@ use nalgebra::Vector3;
 use parking_lot::RwLock;
 use test::Bencher;
 
-use crate::{Octree, OctreeVec, PointData};
+use octree::{Octree, OctreeVec, PointData};
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 struct TileData {
