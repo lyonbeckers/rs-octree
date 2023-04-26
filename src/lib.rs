@@ -1,8 +1,11 @@
+#![cfg_attr(feature = "nightly", feature(test))]
 #![deny(clippy::pedantic)]
 #![deny(clippy::perf)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::missing_errors_doc)]
 
+#[cfg(feature = "nightly")]
+mod bench;
 pub mod error;
 #[cfg(test)]
 mod test;
