@@ -347,7 +347,6 @@ fn remove_range() {
 
     fill_octree(aabb, &mut octree, &mut 0).unwrap();
     let before = octree.count();
-    dbg!(&before);
     let aabb_remove = Aabb::from_extents(Point::new(1, 1, 1), Point::new(5, 5, 5));
     octree.remove_range(aabb_remove);
 

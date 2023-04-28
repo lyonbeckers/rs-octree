@@ -898,7 +898,6 @@ where
         match paternity {
             Paternity::ChildFree | Paternity::ProudParent if S > len => {
                 self.as_mut().elements.push_slice(elements)?;
-                dbg!(self.as_ref().elements.len());
 
                 let len = self.as_ref().elements.len();
                 if paternity == Paternity::ChildFree && len == S {
@@ -915,7 +914,6 @@ where
             Paternity::ProudParent => {}
         }
 
-        dbg!(remaining.is_empty());
         if remaining.is_empty() {
             return Ok(());
         }
@@ -1006,7 +1004,6 @@ where
     #[must_use]
     pub fn count(&self) -> usize {
         let mut count: usize = self.as_ref().elements.len();
-        dbg!(&count);
 
         match &self.as_ref().paternity {
             Paternity::ChildFree => count,
