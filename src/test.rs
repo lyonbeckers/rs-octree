@@ -65,7 +65,7 @@ fn from_iter() {
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
 
-    let mut oct_a = Octree::<i32, TileData, 32>::new(
+    let oct_a = Octree::<i32, TileData, 32>::new(
         Aabb::from_extents(Point::zeros(), Point::zeros()),
         None,
         container,
@@ -89,7 +89,7 @@ fn test_float() {
 
     let aabb = FloatAabb::new(FloatPoint::new(1., 1., 1.), FloatPoint::new(4., 4., 4.));
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let mut octree = Octree::<f32, FloatTileData, 32>::new(aabb, None, container);
+    let octree = Octree::<f32, FloatTileData, 32>::new(aabb, None, container);
 
     octree
         .insert(FloatTileData::new(FloatPoint::new(
@@ -360,7 +360,7 @@ fn remove_range() {
 fn remove_range_disorder() {
     let aabb = Aabb::from_extents(Point::new(0, 0, 0), Point::new(7, 7, 7));
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let mut octree = Octree::<i32, TileData, 8>::new(aabb, None, container);
+    let octree = Octree::<i32, TileData, 8>::new(aabb, None, container);
 
     octree
         .insert(TileData::new(Vector3::new(7, 7, 7), 0))
@@ -522,7 +522,7 @@ fn serialize_deserialize() {
     tracing::subscriber::set_global_default(setup_subscriber()).ok();
 
     let container = Arc::new(RwLock::new(OctreeVec::new()));
-    let mut octree = Octree::<i32, TileData, 32>::new(
+    let octree = Octree::<i32, TileData, 32>::new(
         Aabb::from_extents(Point::new(-5, -5, -5), Point::new(5, 5, 5)),
         None,
         container,
@@ -596,6 +596,7 @@ fn serialize_deserialize_deep() {
         .get_inner()
         .read()
         .children
+        .read()
         .iter()
         .flatten()
         .map(|child| child.get_inner().read().id)
@@ -605,6 +606,7 @@ fn serialize_deserialize_deep() {
         .get_inner()
         .read()
         .children
+        .read()
         .iter()
         .any(std::option::Option::is_some));
 
@@ -613,9 +615,10 @@ fn serialize_deserialize_deep() {
         .get_inner()
         .read()
         .children
+        .read()
         .iter()
         .flatten()
-        .zip(octree.get_inner().read().children.iter().flatten())
+        .zip(octree.get_inner().read().children.read().iter().flatten())
     {
         assert_eq!(r_child.get_inner().read().id, child.get_inner().read().id);
         assert_eq!(

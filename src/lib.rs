@@ -81,7 +81,7 @@ where
             Bounded::min_value(),
         );
 
-        let mut items = iter.into_iter().collect::<Vec<T>>();
+        let items = iter.into_iter().collect::<Vec<T>>();
 
         if items.is_empty() {
             smallest = Vector3::zeros();
@@ -104,9 +104,9 @@ where
             container: Vec::with_capacity(items.len() / S),
         }));
 
-        let mut octree = Octree::new(Aabb::from_extents(smallest, largest), None, container);
+        let octree = Octree::new(Aabb::from_extents(smallest, largest), None, container);
 
-        octree.insert_elements(&mut items).ok();
+        octree.insert_elements(&items).ok();
 
         octree
     }
@@ -440,7 +440,7 @@ struct OctreeInner<N: Scalar, T: Copy, const S: usize> {
     aabb: Aabb<N>,
     id: usize,
     elements: ElementArray<N, T, S>,
-    children: [Option<Octree<N, T, S>>; 8],
+    children: Arc<RwLock<[Option<Octree<N, T, S>>; 8]>>,
     parent: Option<Octree<N, T, S>>,
     container: Arc<RwLock<OctreeVec<N, T, S>>>,
     paternity: Paternity,
@@ -481,6 +481,7 @@ where
                 elements: octree.elements.clone(),
                 children: octree
                     .children
+                    .read()
                     .iter()
                     .flatten()
                     .map(|c| c.as_ref().id)
@@ -533,7 +534,9 @@ where
                         paternity: octree.paternity,
                         elements: octree.elements.clone(),
                         container: container.clone(),
-                        children: [None, None, None, None, None, None, None, None],
+                        children: Arc::new(RwLock::new([
+                            None, None, None, None, None, None, None, None,
+                        ])),
                     }));
 
                     octrees.push(Octree { inner });
@@ -630,7 +633,9 @@ where
             aabb,
             elements: ElementArray::new(),
             parent,
-            children: [None, None, None, None, None, None, None, None],
+            children: Arc::new(RwLock::new([
+                None, None, None, None, None, None, None, None,
+            ])),
             container,
             paternity: Paternity::ChildFree,
         }));
@@ -668,7 +673,7 @@ where
     /// will return an error if the subdivision does not have the correct dimensions, or if there
     /// are more than 8 children
     #[allow(clippy::too_many_lines)]
-    fn subdivide(&mut self) -> Result<(), N>
+    fn subdivide(&self) -> Result<(), N>
     where
         N: Sync + Send + NumTraits + Copy + Clone,
         T: PointData<N> + PartialEq + Debug + Sync + Send,
@@ -797,6 +802,7 @@ where
             let total_volume = self
                 .as_ref()
                 .children
+                .read()
                 .iter()
                 .filter_map(|child| {
                     child.clone().map(|c| {
@@ -835,7 +841,7 @@ where
 
         if self.as_mut().elements.remove(point).is_none() {
             if let Paternity::ProudParent = self.as_ref().paternity {
-                self.as_ref().children.par_iter().for_each(|child| {
+                self.as_ref().children.read().par_iter().for_each(|child| {
                     if let Some(child) = child {
                         child.as_mut().elements.remove(point);
                     }
@@ -859,7 +865,7 @@ where
         self.as_mut().elements.remove_range(range);
 
         if let Paternity::ProudParent = self.as_ref().paternity {
-            self.as_ref().children.par_iter().for_each(|child| {
+            self.as_ref().children.read().par_iter().for_each(|child| {
                 if let Some(child) = child {
                     child.remove_range(range);
                 }
@@ -867,7 +873,7 @@ where
         }
     }
 
-    pub fn insert_elements(&mut self, elements: &Vec<T>) -> Result<(), N>
+    pub fn insert_elements(&self, elements: &Vec<T>) -> Result<(), N>
     where
         N: Sync + Send + NumTraits + Copy + Clone,
         T: PointData<N> + PartialEq + Debug + Sync + Send,
@@ -922,9 +928,10 @@ where
 
         match paternity {
             Paternity::ProudParent => self
-                .as_mut()
+                .as_ref()
                 .children
-                .iter_mut()
+                .write()
+                .par_iter_mut()
                 .filter_map(|child| child.as_mut().map(|c| c.insert_elements(&remaining)))
                 .filter(std::result::Result::is_ok)
                 .collect::<Result<(), N>>(),
@@ -934,14 +941,15 @@ where
         }
     }
 
-    fn add_child(&mut self, child: Self) -> Result<(), N>
+    fn add_child(&self, child: Self) -> Result<(), N>
     where
         N: Scalar,
         T: Copy,
     {
         match self
-            .as_mut()
+            .as_ref()
             .children
+            .write()
             .iter_mut()
             .find(|child| child.is_none())
         {
@@ -955,7 +963,7 @@ where
         }
     }
 
-    pub fn insert(&mut self, element: T) -> Result<(), N>
+    pub fn insert(&self, element: T) -> Result<(), N>
     where
         N: Sync + Send + NumTraits + Copy + Clone,
         T: PointData<N> + PartialEq + Debug + Sync + Send,
@@ -989,9 +997,10 @@ where
 
         match &self.paternity() {
             Paternity::ProudParent => self
-                .as_mut()
+                .as_ref()
                 .children
-                .iter_mut()
+                .write()
+                .par_iter_mut()
                 .filter_map(|child| child.as_mut().map(|c| c.insert(element)))
                 .filter(std::result::Result::is_ok)
                 .collect::<Result<(), N>>(),
@@ -1008,7 +1017,7 @@ where
         match &self.as_ref().paternity {
             Paternity::ChildFree => count,
             Paternity::ProudParent => {
-                for child in self.as_ref().children.iter().flatten() {
+                for child in self.as_ref().children.read().iter().flatten() {
                     count += child.count();
                 }
                 count
@@ -1035,6 +1044,7 @@ where
 
         self.as_ref()
             .children
+            .read()
             .par_iter()
             .find_map_any(|child| child.as_ref().and_then(|c| c.query_point(point)))
     }
@@ -1063,7 +1073,7 @@ where
             return elements_in_range;
         }
 
-        self.as_ref().children.iter().flatten().fold(
+        self.as_ref().children.read().iter().flatten().fold(
             elements_in_range,
             |mut elements_in_range, child| {
                 elements_in_range.extend(child.query_range(range));

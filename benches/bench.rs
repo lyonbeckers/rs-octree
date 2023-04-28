@@ -36,7 +36,7 @@ fn bench_fill_20e3_octree_32(b: &mut Bencher) {
     }
     b.iter(|| {
         let container = Arc::new(RwLock::new(OctreeVec::<i32, TileData, 32>::new()));
-        let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+        let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
         octree.insert_elements(&points.clone()).ok();
     });
@@ -61,7 +61,7 @@ fn bench_fill_20e3_octree_32_with_capacity(b: &mut Bencher) {
         let container = Arc::new(RwLock::new(OctreeVec::<i32, TileData, 32>::with_capacity(
             250,
         )));
-        let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+        let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
 
         octree.insert_elements(&points.clone()).ok();
     });
@@ -83,7 +83,7 @@ fn bench_add_remove_20e3_32(b: &mut Bencher) {
     let container = Arc::new(RwLock::new(OctreeVec::<i32, TileData, 32>::with_capacity(
         250,
     )));
-    let mut octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
     octree.insert_elements(&points.clone()).ok();
 
     b.iter(|| {
@@ -108,7 +108,7 @@ fn bench_add_remove_20e3_128(b: &mut Bencher) {
     let container = Arc::new(RwLock::new(OctreeVec::<i32, TileData, 128>::with_capacity(
         250,
     )));
-    let mut octree = Octree::<i32, TileData, 128>::new(aabb, None, container);
+    let octree = Octree::<i32, TileData, 128>::new(aabb, None, container);
     octree.insert_elements(&points.clone()).ok();
 
     b.iter(|| {
@@ -133,7 +133,7 @@ fn query_range_20e3_32(b: &mut Bencher) {
     let container = Arc::new(RwLock::new(OctreeVec::<i32, TileData, 128>::with_capacity(
         250,
     )));
-    let mut octree = Octree::<i32, TileData, 128>::new(aabb, None, container);
+    let octree = Octree::<i32, TileData, 128>::new(aabb, None, container);
     octree.insert_elements(&points.clone()).ok();
 
     b.iter(|| {
@@ -157,7 +157,7 @@ fn query_point_20e3_32(b: &mut Bencher) {
     let container = Arc::new(RwLock::new(OctreeVec::<i32, TileData, 128>::with_capacity(
         250,
     )));
-    let mut octree = Octree::<i32, TileData, 128>::new(aabb, None, container);
+    let octree = Octree::<i32, TileData, 128>::new(aabb, None, container);
     octree.insert_elements(&points.clone()).ok();
 
     b.iter(|| {
