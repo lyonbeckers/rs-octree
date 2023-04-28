@@ -895,7 +895,9 @@ where
 
         let available = S - self.as_ref().elements.len();
 
-        self.as_mut().elements.drain_duplicates(&mut elements);
+        if !self.as_ref().elements.is_empty() {
+            self.as_mut().elements.drain_duplicates(&mut elements);
+        }
 
         let remaining = elements.split_off(available.min(elements.len()));
 
