@@ -118,6 +118,28 @@ fn bench_add_remove_20e3_128(b: &mut Bencher) {
 }
 
 #[bench]
+fn bench_overwrite_20e3_32(b: &mut Bencher) {
+    let aabb = Aabb::from_extents(Vector3::new(0, 0, 0), Vector3::new(20, 20, 20));
+    let mut points = Vec::new();
+    for x in 0..20 {
+        for y in 0..20 {
+            for z in 0..20 {
+                points.push(TileData {
+                    point: Vector3::new(x, y, z),
+                });
+            }
+        }
+    }
+    let container = Arc::new(RwLock::new(OctreeVec::<i32, TileData, 32>::with_capacity(
+        250,
+    )));
+    let octree = Octree::<i32, TileData, 32>::new(aabb, None, container);
+    octree.insert_elements(&points.clone()).ok();
+
+    b.iter(|| octree.insert_elements(&points.clone()).ok());
+}
+
+#[bench]
 fn query_range_20e3_32(b: &mut Bencher) {
     let aabb = Aabb::from_extents(Vector3::new(0, 0, 0), Vector3::new(20, 20, 20));
     let mut points = Vec::new();

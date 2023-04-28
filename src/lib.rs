@@ -380,21 +380,19 @@ where
         T: PointData<N> + Send + Sync,
     {
         //overwrite duplicates
-        self.array[0..self.length]
-            .par_iter_mut()
-            .for_each(|element| {
-                if let Some(dupe) = elements.iter().find(|inc| {
-                    element
-                        .map(|e| e.get_point() == inc.get_point())
-                        .unwrap_or(false)
-                }) {
-                    element.replace(*dupe);
-                }
-            });
+        self.array[0..self.length].iter_mut().for_each(|element| {
+            if let Some(dupe) = elements.iter().find(|inc| {
+                element
+                    .map(|e| e.get_point() == inc.get_point())
+                    .unwrap_or(false)
+            }) {
+                element.replace(*dupe);
+            }
+        });
 
         //cull out duplicates
         elements.retain(|inc| {
-            !self.array[0..self.length].par_iter().any(|orig| {
+            !self.array[0..self.length].iter().any(|orig| {
                 orig.map(|e| e.get_point() == inc.get_point())
                     .unwrap_or(false)
             })
