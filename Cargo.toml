@@ -13,7 +13,6 @@ nightly = []
 [dependencies]
 
 aabb = { git = "https://github.com/lyonbeckers/rs-aabb" }
-crossbeam-channel = "0.5"
 nalgebra = { version = "0.32", features = ["serde-serialize"] }
 num = "0.4"
 parking_lot = { version = "0.12", features = ["serde"] }

@@ -12,7 +12,7 @@ use std::{
     iter::FromIterator,
     marker::PhantomData,
     slice::Iter,
-    sync::{atomic::AtomicUsize, Arc, Weak},
+    sync::{atomic::AtomicUsize, Arc},
 };
 
 use crate::error::{Error, Result};
@@ -81,7 +81,7 @@ where
             Bounded::min_value(),
         );
 
-        let items = iter.into_iter().collect::<Vec<T>>();
+        let mut items = iter.into_iter().collect::<Vec<T>>();
 
         if items.is_empty() {
             smallest = Vector3::zeros();
@@ -106,7 +106,7 @@ where
 
         let mut octree = Octree::new(Aabb::from_extents(smallest, largest), None, container);
 
-        octree.insert_elements(items).ok();
+        octree.insert_elements(&mut items).ok();
 
         octree
     }
@@ -162,6 +162,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct ElementArray<N, T: Copy, const S: usize> {
     array: [Option<T>; S],
     phantom: PhantomData<N>,
@@ -296,14 +297,11 @@ where
             }));
         }
 
-        self.array[self.length..self.length + elements.len()].copy_from_slice(
-            elements
-                .iter()
-                .map(|e| Some(*e))
-                .collect::<Vec<_>>()
-                .as_slice(),
-        );
-        self.length += elements.len();
+        let mut option_vec = Vec::with_capacity(elements.len());
+        option_vec.extend(elements.into_iter().map(|e| Some(e)));
+
+        self.array[self.length..self.length + option_vec.len()].copy_from_slice(&option_vec);
+        self.length += option_vec.len();
 
         Ok(())
     }
@@ -317,9 +315,9 @@ where
         let mut position = 0;
         if let Some((index, element)) = self
             .array
-            .par_iter_mut()
+            .iter_mut()
             .enumerate()
-            .find_any(|(_, element)| element.map(|e| e.get_point() == *point).unwrap_or(false))
+            .find(|(_, element)| element.map(|e| e.get_point() == *point).unwrap_or(false))
         {
             position = index;
             ret = element.take();
@@ -333,20 +331,19 @@ where
         None
     }
 
-    pub fn elements_in_range(&self, range: Aabb<N>) -> Vec<T>
+    pub fn elements_in_range<'a>(&'a self, range: Aabb<N>) -> impl Iterator<Item = T> + 'a
     where
         N: NumTraits + Copy + Send + Sync,
         T: PointData<N> + Send + Sync,
     {
         self.array
-            .par_iter()
-            .filter(|element| {
+            .iter()
+            .filter(move |element| {
                 element
-                    .map(|e| range.contains_point(e.get_point()))
+                    .map(move |e| range.contains_point(e.get_point()))
                     .unwrap_or(false)
             })
             .map(|e| e.unwrap())
-            .collect::<Vec<T>>()
     }
 
     pub fn remove_range(&mut self, range: Aabb<N>)
@@ -411,9 +408,9 @@ where
         let pt = element.get_point();
         if let Some(dupe_element) = self
             .array
-            .par_iter_mut()
+            .iter_mut()
             .filter_map(std::option::Option::as_mut)
-            .find_any(|element| element.get_point() == pt)
+            .find(|element| element.get_point() == pt)
         {
             *dupe_element = element;
             return true;
@@ -429,8 +426,8 @@ where
     {
         if let Some(found) = self
             .array
-            .par_iter()
-            .find_any(|element| element.map(|e| e.get_point() == *point).unwrap_or(false))
+            .iter()
+            .find(|element| element.map(|e| e.get_point() == *point).unwrap_or(false))
         {
             return *found;
         }
@@ -442,12 +439,11 @@ where
 struct OctreeInner<N: Scalar, T: Copy, const S: usize> {
     aabb: Aabb<N>,
     id: usize,
-    elements: Arc<RwLock<ElementArray<N, T, S>>>,
+    elements: ElementArray<N, T, S>,
     children: [Option<Octree<N, T, S>>; 8],
     parent: Option<Octree<N, T, S>>,
     container: Arc<RwLock<OctreeVec<N, T, S>>>,
     paternity: Paternity,
-    lock: Weak<RwLock<Self>>,
 }
 
 // TODO: A serialization implementation which serializes just the container, and a deserializer
@@ -461,7 +457,7 @@ pub struct Octree<N: Scalar, T: Copy, const S: usize> {
 struct SerializeOctree<N: Scalar, T: Copy, const L: usize> {
     aabb: Aabb<N>,
     id: usize,
-    elements: Arc<RwLock<ElementArray<N, T, L>>>,
+    elements: ElementArray<N, T, L>,
     children: Vec<usize>,
     parent: Option<usize>,
     paternity: Paternity,
@@ -538,11 +534,7 @@ where
                         elements: octree.elements.clone(),
                         container: container.clone(),
                         children: [None, None, None, None, None, None, None, None],
-                        lock: Weak::new(),
                     }));
-
-                    let downgrade = Arc::downgrade(&inner);
-                    inner.write().lock = downgrade;
 
                     octrees.push(Octree { inner });
 
@@ -636,16 +628,12 @@ where
         let octree = Arc::new(RwLock::new(OctreeInner {
             id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
             aabb,
-            elements: Arc::new(RwLock::new(ElementArray::new())),
+            elements: ElementArray::new(),
             parent,
             children: [None, None, None, None, None, None, None, None],
             container,
             paternity: Paternity::ChildFree,
-            lock: Weak::new(),
         }));
-
-        let weak = Arc::downgrade(&octree);
-        octree.write().lock = weak;
 
         let octree_lock = octree.read();
         let container = octree_lock.container.clone();
@@ -700,154 +688,107 @@ where
         let smaller_half = dimensions / two;
         let larger_half = dimensions - smaller_half - Vector3::new(adj, adj, adj);
 
-        let (tx, rx) = crossbeam_channel::unbounded::<Self>();
-
         let parent = self.clone();
         let container = self.as_ref().container.clone();
 
-        rayon::scope(move |s| {
-            //down back left
-            let sub_max = min + larger_half;
+        //down back left
+        let sub_max = min + larger_half;
 
-            let downbackleft = Aabb::<N>::from_extents(min, sub_max);
-            tx.send(Octree::new(
-                downbackleft,
+        let downbackleft = Aabb::<N>::from_extents(min, sub_max);
+        self.add_child(Octree::new(
+            downbackleft,
+            Some(parent.clone()),
+            container.clone(),
+        ))?;
+
+        if dimensions.x > one {
+            let sub_min = min + Vector3::new(larger_half.x + adj, zero, zero);
+            let sub_max = Vector3::new(max.x, sub_min.y + larger_half.y, sub_min.z + larger_half.z);
+
+            let downbackright = Aabb::<N>::from_extents(sub_min, sub_max);
+            self.add_child(Octree::new(
+                downbackright,
                 Some(parent.clone()),
                 container.clone(),
             ))
             .unwrap();
 
-            if dimensions.x > one {
-                let tx1 = tx.clone();
-
-                let container = container.clone();
-                let parent = parent.clone();
-
-                s.spawn(move |s| {
-                    let sub_min = min + Vector3::new(larger_half.x + adj, zero, zero);
-                    let sub_max =
-                        Vector3::new(max.x, sub_min.y + larger_half.y, sub_min.z + larger_half.z);
-
-                    let downbackright = Aabb::<N>::from_extents(sub_min, sub_max);
-                    tx1.send(Octree::new(
-                        downbackright,
-                        Some(parent.clone()),
-                        container.clone(),
-                    ))
-                    .unwrap();
-
-                    if dimensions.z > one {
-                        s.spawn(move |s| {
-                            //down forward right
-                            let sub_min =
-                                min + Vector3::new(larger_half.x + adj, zero, larger_half.z + adj);
-                            let sub_max = Vector3::new(max.x, sub_min.y + larger_half.y, max.z);
-                            let downforwardright = Aabb::<N>::from_extents(sub_min, sub_max);
-                            tx1.send(Octree::new(
-                                downforwardright,
-                                Some(parent.clone()),
-                                container.clone(),
-                            ))
-                            .unwrap();
-
-                            if dimensions.y > one {
-                                s.spawn(move |_| {
-                                    //up forward right
-                                    let sub_min = min
-                                        + Vector3::new(
-                                            larger_half.x + adj,
-                                            larger_half.y + adj,
-                                            larger_half.z + adj,
-                                        );
-                                    let upforwardright = Aabb::<N>::from_extents(sub_min, max);
-                                    tx1.send(Octree::new(
-                                        upforwardright,
-                                        Some(parent.clone()),
-                                        container.clone(),
-                                    ))
-                                    .unwrap();
-                                });
-                            }
-                        });
-                    }
-                });
-            }
-
             if dimensions.z > one {
-                let tx2 = tx.clone();
+                //down forward right
+                let sub_min = min + Vector3::new(larger_half.x + adj, zero, larger_half.z + adj);
+                let sub_max = Vector3::new(max.x, sub_min.y + larger_half.y, max.z);
+                let downforwardright = Aabb::<N>::from_extents(sub_min, sub_max);
+                self.add_child(Octree::new(
+                    downforwardright,
+                    Some(parent.clone()),
+                    container.clone(),
+                ))?;
 
-                let container = container.clone();
-                let parent = parent.clone();
-
-                s.spawn(move |s| {
-                    //down forward left
-                    let sub_min = min + Vector3::new(zero, zero, larger_half.z + adj);
-                    let sub_max =
-                        Vector3::new(sub_min.x + larger_half.x, sub_min.y + larger_half.y, max.z);
-
-                    let downforwardleft = Aabb::<N>::from_extents(sub_min, sub_max);
-                    tx2.send(Octree::new(
-                        downforwardleft,
+                if dimensions.y > one {
+                    //up forward right
+                    let sub_min = min
+                        + Vector3::new(
+                            larger_half.x + adj,
+                            larger_half.y + adj,
+                            larger_half.z + adj,
+                        );
+                    let upforwardright = Aabb::<N>::from_extents(sub_min, max);
+                    self.add_child(Octree::new(
+                        upforwardright,
                         Some(parent.clone()),
                         container.clone(),
-                    ))
-                    .unwrap();
-
-                    if dimensions.y > one {
-                        s.spawn(move |_| {
-                            //up forward left
-                            let sub_min =
-                                min + Vector3::new(zero, larger_half.y + adj, larger_half.z + adj);
-                            let sub_max = Vector3::new(sub_min.x + larger_half.x, max.y, max.z);
-                            let upforwardleft = Aabb::<N>::from_extents(sub_min, sub_max);
-                            tx2.send(Octree::new(
-                                upforwardleft,
-                                Some(parent.clone()),
-                                container.clone(),
-                            ))
-                            .unwrap();
-                        });
-                    }
-                });
+                    ))?;
+                }
             }
+        }
+
+        if dimensions.z > one {
+            //down forward left
+            let sub_min = min + Vector3::new(zero, zero, larger_half.z + adj);
+            let sub_max = Vector3::new(sub_min.x + larger_half.x, sub_min.y + larger_half.y, max.z);
+
+            let downforwardleft = Aabb::<N>::from_extents(sub_min, sub_max);
+            self.add_child(Octree::new(
+                downforwardleft,
+                Some(parent.clone()),
+                container.clone(),
+            ))?;
 
             if dimensions.y > one {
-                let tx3 = tx.clone();
-
-                s.spawn(move |s| {
-                    //up back left
-                    let sub_min = min + Vector3::new(zero, larger_half.y + adj, zero);
-                    let sub_max =
-                        Vector3::new(sub_min.x + larger_half.x, max.y, sub_min.z + larger_half.z);
-                    let upbackleft = Aabb::<N>::from_extents(sub_min, sub_max);
-                    tx3.send(Octree::new(
-                        upbackleft,
-                        Some(parent.clone()),
-                        container.clone(),
-                    ))
-                    .unwrap();
-
-                    if dimensions.x > one {
-                        s.spawn(move |_| {
-                            //up back right
-                            let sub_min =
-                                min + Vector3::new(larger_half.x + adj, larger_half.y + adj, zero);
-                            let sub_max = Vector3::new(max.x, max.y, sub_min.z + larger_half.z);
-                            let upbackright = Aabb::<N>::from_extents(sub_min, sub_max);
-                            tx3.send(Octree::new(
-                                upbackright,
-                                Some(parent.clone()),
-                                container.clone(),
-                            ))
-                            .unwrap();
-                        });
-                    }
-                });
+                //up forward left
+                let sub_min = min + Vector3::new(zero, larger_half.y + adj, larger_half.z + adj);
+                let sub_max = Vector3::new(sub_min.x + larger_half.x, max.y, max.z);
+                let upforwardleft = Aabb::<N>::from_extents(sub_min, sub_max);
+                self.add_child(Octree::new(
+                    upforwardleft,
+                    Some(parent.clone()),
+                    container.clone(),
+                ))?;
             }
-        });
+        }
 
-        for received in rx {
-            self.add_child(received)?;
+        if dimensions.y > one {
+            //up back left
+            let sub_min = min + Vector3::new(zero, larger_half.y + adj, zero);
+            let sub_max = Vector3::new(sub_min.x + larger_half.x, max.y, sub_min.z + larger_half.z);
+            let upbackleft = Aabb::<N>::from_extents(sub_min, sub_max);
+            self.add_child(Octree::new(
+                upbackleft,
+                Some(parent.clone()),
+                container.clone(),
+            ))?;
+
+            if dimensions.x > one {
+                //up back right
+                let sub_min = min + Vector3::new(larger_half.x + adj, larger_half.y + adj, zero);
+                let sub_max = Vector3::new(max.x, max.y, sub_min.z + larger_half.z);
+                let upbackright = Aabb::<N>::from_extents(sub_min, sub_max);
+                self.add_child(Octree::new(
+                    upbackright,
+                    Some(parent.clone()),
+                    container.clone(),
+                ))?;
+            }
         }
 
         self.as_mut().paternity = Paternity::ProudParent;
@@ -856,7 +797,7 @@ where
             let total_volume = self
                 .as_ref()
                 .children
-                .par_iter()
+                .iter()
                 .filter_map(|child| {
                     child.clone().map(|c| {
                         let w = c.as_ref();
@@ -887,16 +828,16 @@ where
         T: PointData<N> + PartialEq + Debug + Sync + Send,
     {
         if let Paternity::ChildFree = self.as_ref().paternity {
-            if self.as_ref().elements.read().is_empty() {
+            if self.as_ref().elements.is_empty() {
                 return;
             }
         }
 
-        if self.as_ref().elements.write().remove(point).is_none() {
+        if self.as_mut().elements.remove(point).is_none() {
             if let Paternity::ProudParent = self.as_ref().paternity {
                 self.as_ref().children.par_iter().for_each(|child| {
                     if let Some(child) = child {
-                        child.as_ref().elements.write().remove(point);
+                        child.as_mut().elements.remove(point);
                     }
                 });
             }
@@ -910,12 +851,12 @@ where
         T: PointData<N> + PartialEq + Debug + Sync + Send,
     {
         if let Paternity::ChildFree = self.as_ref().paternity {
-            if self.as_ref().elements.read().is_empty() {
+            if self.as_ref().elements.is_empty() {
                 return;
             }
         }
 
-        self.as_ref().elements.write().remove_range(range);
+        self.as_mut().elements.remove_range(range);
 
         if let Paternity::ProudParent = self.as_ref().paternity {
             self.as_ref().children.par_iter().for_each(|child| {
@@ -926,12 +867,19 @@ where
         }
     }
 
-    pub fn insert_elements(&mut self, mut elements: Vec<T>) -> Result<(), N>
+    pub fn insert_elements(&mut self, elements: &Vec<T>) -> Result<(), N>
     where
         N: Sync + Send + NumTraits + Copy + Clone,
         T: PointData<N> + PartialEq + Debug + Sync + Send,
     {
-        elements.retain(|element| self.as_ref().aabb.contains_point(element.get_point()));
+        let mut retained_elements = Vec::with_capacity(elements.len());
+        retained_elements.extend(
+            elements
+                .into_iter()
+                .filter(|element| self.as_ref().aabb.contains_point(element.get_point())),
+        );
+
+        let mut elements = retained_elements;
 
         if elements.is_empty() {
             return Err(Error::InsertionError(InsertionError {
@@ -939,23 +887,20 @@ where
             }));
         }
 
-        let available = S - self.as_ref().elements.read().len();
+        let available = S - self.as_ref().elements.len();
 
-        self.as_ref()
-            .elements
-            .write()
-            .drain_duplicates(&mut elements);
+        self.as_mut().elements.drain_duplicates(&mut elements);
 
         let remaining = elements.split_off(available.min(elements.len()));
 
-        let len = self.as_ref().elements.read().len();
-        let elements_clone = self.as_ref().elements.clone();
+        let len = self.as_ref().elements.len();
         let paternity = self.as_ref().paternity;
-        match self.paternity() {
+        match paternity {
             Paternity::ChildFree | Paternity::ProudParent if S > len => {
-                elements_clone.clone().write().push_slice(elements)?;
+                self.as_mut().elements.push_slice(elements)?;
+                dbg!(self.as_ref().elements.len());
 
-                let len = self.as_ref().elements.read().len();
+                let len = self.as_ref().elements.len();
                 if paternity == Paternity::ChildFree && len == S {
                     self.subdivide()?;
                 }
@@ -970,6 +915,7 @@ where
             Paternity::ProudParent => {}
         }
 
+        dbg!(remaining.is_empty());
         if remaining.is_empty() {
             return Ok(());
         }
@@ -980,8 +926,8 @@ where
             Paternity::ProudParent => self
                 .as_mut()
                 .children
-                .par_iter_mut()
-                .filter_map(|child| child.as_mut().map(|c| c.insert_elements(remaining.clone())))
+                .iter_mut()
+                .filter_map(|child| child.as_mut().map(|c| c.insert_elements(&remaining)))
                 .filter(std::result::Result::is_ok)
                 .collect::<Result<(), N>>(),
             Paternity::ChildFree => Err(Error::<N>::InsertionError(InsertionError {
@@ -1025,16 +971,16 @@ where
         }
 
         //if element already exists at point, replace it
-        if self.as_ref().elements.write().replace(element) {
+        if self.as_mut().elements.replace(element) {
             return Ok(());
         }
 
-        let len = self.as_ref().elements.read().len();
+        let len = self.as_ref().elements.len();
 
         //do first match because you still need to insert into children after subdividing, not either/or
         match &self.paternity() {
             Paternity::ChildFree | Paternity::ProudParent if S > len => {
-                self.as_ref().elements.write().push(element)?;
+                self.as_mut().elements.push(element)?;
 
                 return Ok(());
             }
@@ -1047,7 +993,7 @@ where
             Paternity::ProudParent => self
                 .as_mut()
                 .children
-                .par_iter_mut()
+                .iter_mut()
                 .filter_map(|child| child.as_mut().map(|c| c.insert(element)))
                 .filter(std::result::Result::is_ok)
                 .collect::<Result<(), N>>(),
@@ -1059,7 +1005,8 @@ where
 
     #[must_use]
     pub fn count(&self) -> usize {
-        let mut count: usize = self.as_ref().elements.read().len();
+        let mut count: usize = self.as_ref().elements.len();
+        dbg!(&count);
 
         match &self.as_ref().paternity {
             Paternity::ChildFree => count,
@@ -1081,7 +1028,7 @@ where
             return None;
         }
 
-        if let Some(found) = self.as_ref().elements.read().find_at_point(point) {
+        if let Some(found) = self.as_ref().elements.find_at_point(point) {
             return Some(found);
         }
 
@@ -1108,33 +1055,24 @@ where
         }
 
         if let Paternity::ChildFree = self.as_ref().paternity {
-            if self.as_ref().elements.read().is_empty() {
+            if self.as_ref().elements.is_empty() {
                 return elements_in_range;
             }
         }
 
-        elements_in_range.extend(self.as_ref().elements.read().elements_in_range(range));
+        elements_in_range.extend(self.as_ref().elements.elements_in_range(range));
 
         if let Paternity::ChildFree = self.as_ref().paternity {
             return elements_in_range;
         }
 
-        let (tx, rx) = crossbeam_channel::unbounded::<Vec<T>>();
-
-        self.as_ref()
-            .children
-            .par_iter()
-            .for_each_with(tx, |tx, child| {
-                if let Some(child) = child {
-                    tx.send(child.query_range(range)).unwrap();
-                }
-            });
-
-        for mut received in rx {
-            elements_in_range.append(&mut received);
-        }
-
-        elements_in_range
+        self.as_ref().children.iter().flatten().fold(
+            elements_in_range,
+            |mut elements_in_range, child| {
+                elements_in_range.extend(child.query_range(range));
+                elements_in_range
+            },
+        )
     }
 }
 

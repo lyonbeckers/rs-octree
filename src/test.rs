@@ -235,13 +235,13 @@ fn overwrite_elements() {
     fill_octree(aabb, &mut octree, &mut count).unwrap();
 
     let tiles = octree.clone().into_iter().collect::<Vec<TileData>>();
-    let tiles = tiles
+    let mut tiles = tiles
         .iter()
         .map(|tile| TileData::new(tile.point, 1))
         .collect::<Vec<TileData>>();
 
     assert_eq!(tiles.len(), count);
-    octree.insert_elements(tiles).ok();
+    octree.insert_elements(&mut tiles).ok();
 
     assert_eq!(
         octree
@@ -262,7 +262,7 @@ fn overwrite_elements() {
     assert!(octree.query_point(&Point::new(-1, -1, -1)).is_none());
 
     octree
-        .insert_elements(vec![
+        .insert_elements(&mut vec![
             TileData::new(Point::new(0, 1, 0), 0),
             TileData::new(Point::new(-1, -1, -1), 0),
         ])
@@ -347,6 +347,7 @@ fn remove_range() {
 
     fill_octree(aabb, &mut octree, &mut 0).unwrap();
     let before = octree.count();
+    dbg!(&before);
     let aabb_remove = Aabb::from_extents(Point::new(1, 1, 1), Point::new(5, 5, 5));
     octree.remove_range(aabb_remove);
 
@@ -665,5 +666,5 @@ fn fill_octree<const S: usize>(
         }
     }
 
-    octree.insert_elements(values)
+    octree.insert_elements(&mut values)
 }
